@@ -1,0 +1,7 @@
+[project]
+name = "synth-env"
+authors = [
+    {name = "Josh Purtell", email = "josh@usesynth.ai"},
+]
+version = "0.0.0"
+description = "Environment Infrastructure for Long-Horizon LLM Agents"
