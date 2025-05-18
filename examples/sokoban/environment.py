@@ -89,7 +89,7 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
             or SynthSokobanCheckpointObservationCallable()  # Changed default
         )
         return await obs_cb.get_observation(pub_state, priv_state)
-    
+
     async def _to_observation(
         self,
         priv: SokobanPrivateState,

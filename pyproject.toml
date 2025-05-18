@@ -36,6 +36,9 @@ build-backend = "setuptools.build_meta"
 [tool.hatch.build.targets.wheel]
 packages = ["synth_env"]
 
+[tool.hatch.envs.default.env]
+path = ".venv"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto" # Or "strict"
 asyncio_default_fixture_loop_scope = "function"
