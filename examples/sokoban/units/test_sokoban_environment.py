@@ -11,9 +11,12 @@ from uuid import uuid4
 import pytest
 
 # ––––– app imports ––––– #
-from examples.sokoban.environment import SokobanEnvironment  # <- your wrapper
-from examples.sokoban.engine import SokobanEngineSnapshot  # same snapshot type
-from src.environment.tools import EnvToolCall  # call interface
+from examples.sokoban.environment import SokobanEnvironment
+from examples.sokoban.engine import SokobanEngineSnapshot
+from src.environment.tools import EnvToolCall
+
+# shared A* / heuristic utilities
+from examples.sokoban.units.astar_common import astar, solved
 
 from examples.sokoban.taskset import (
     SokobanTaskInstanceMetadata,
@@ -21,26 +24,12 @@ from examples.sokoban.taskset import (
 )
 from src.tasks.core import TaskInstance, Impetus, Intent
 
-# shared A* / heuristic utilities
-from examples.sokoban.units.astar_common import ENGINE_ASTAR, solved # Use ENGINE_ASTAR
-
 
 # ---------------- test fixture snapshot ---------------------------------- #
-# solvable in exactly two actions: push-right, push-up
 SIMPLE_SNAPSHOT: Dict[str, Any] = {
     "dim_room": [4, 4],
-    "room_fixed": [
-        [0, 0, 0, 0],
-        [0, 1, 2, 1],   # target at (1,2)
-        [0, 1, 1, 1],
-        [0, 0, 0, 0],
-    ],
-    "room_state": [
-        [0, 0, 0, 0],
-        [0, 1, 1, 1],
-        [0, 1, 4, 1],   # box at (2,2)
-        [0, 5, 1, 1],   # player at (3,1)
-    ],
+    "room_fixed": [[0, 0, 0, 0], [0, 2, 1, 0], [0, 1, 0, 0], [0, 0, 0, 0]],
+    "room_state": [[0, 0, 0, 0], [0, 1, 4, 0], [0, 5, 0, 0], [0, 0, 0, 0]],
     "boxes_on_target": 0,
     "max_steps": 10,
     "num_boxes": 1,
@@ -53,15 +42,13 @@ class Move(EnvToolCall):  # type: ignore[misc]
         self.action = action
 
 
-# replay helper --------------------------------------------------------- #
 async def replay(
     env: SokobanEnvironment, start: SokobanEngineSnapshot, plan: List[int]
 ) -> bool:
-    """Re-run actions from start snapshot and verify solved state."""
-    current_env = await SokobanEnvironment._deserialize_engine(start)
+    env = await SokobanEnvironment._deserialize_engine(start)
     for a in plan:
-        await current_env.step([[Move(a)]])
-    return solved(current_env.engine)
+        await env.step([[Move(a)]])
+    return solved(env)
 
 
 # ----------------------------- test -------------------------------------- #
@@ -88,26 +75,25 @@ async def test_environment_solve_and_replay():
 
     env = SokobanEnvironment(ti)
     await env.initialize()
-
+    
     # speed-up: disable image rendering inside gym-sokoban
     env.engine.package_sokoban_env.observation_mode = "raw"
 
     root_snapshot = await env._serialize_engine()
 
-    # plan search – use the engine step to avoid costly renders
-    # Use ENGINE_ASTAR which is set up for engine-level operations
-    plan = await ENGINE_ASTAR(
-        env.engine,            # Pass the engine directly
-        max_nodes=200,            # tighter breaker
+    # plan search (pass custom step_fn using our Move wrapper)
+    plan = await astar(
+        root_obj=env,
+        step_fn=lambda e, act: e.step([[Move(act)]]), # Renamed action to act to avoid conflict
+        deserialize_fn=SokobanEnvironment._deserialize_engine,
+        max_nodes=500,            # circuit-breaker
     )
     assert plan, "Environment A* failed to find a plan"
-    assert len(plan) == 2  # expect the 2-move solution
+    assert len(plan) == 2                   # expect the 2-move solution
 
     # verify replay
-    replayed_successfully = await replay(env, root_snapshot, plan)
-    assert replayed_successfully, "Plan did not solve the puzzle upon replay"
-    print(f"Test passed: Plan {plan} (length {len(plan)}) replayed successfully and solved the puzzle.")
+    assert await replay(env, root_snapshot, plan)
 
 if __name__ == "__main__":
     asyncio.run(test_environment_solve_and_replay())
-    pass
+    pass 

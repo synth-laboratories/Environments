@@ -9,12 +9,16 @@ Synthetic Environments / Long Horizon Tasks / Digital Control Agents
 - Environment observability and tracing
 - HTTP access for simplified training and evaluation
 - Strong data abstractions to enable easily-configurable filtering and curriculum learning
+- Simple abstractions for agent-originated tool edits, etc.
 
 # User Guide
 Note - this repo is under extremely active development. Hic sunt dracones, if not contributing it may be more useful as a reference or development resource than as core code for your production systems.
 
 # Supported Environments
-[] Sokoban (in dev)
+[] Sokoban (maturing, not active dev)
+    This environment is not of our own making! Please credit the great researchers at [Deepmind](https://deepmind.google/discover/blog/agents-that-imagine-and-plan/) and [Ragen](https://ragen-ai.github.io), among others.
+[] Crafter-Classic (active dev)
+
 ...
 
 # Development
@@ -23,4 +27,3 @@ To use the Astral suite of devtools:
 package management: uv sync, uv add, uv remove
 linting: ruff format .
 type(hint) checking: uvx ty check
-

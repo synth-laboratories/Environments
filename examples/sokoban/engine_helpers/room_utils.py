@@ -321,15 +321,17 @@ def generate_room(
                 continue_probability=0.5,
                 max_steps=3,
             )
-            print(
-                f"Successfully generated room with score {score} using seed {current_seed} (offset {retry_offset})."
-            )
+            # print(
+            #     f"Successfully generated room with score {score} using seed {current_seed} (offset {retry_offset})."
+            # )
             return room_structure, final_room_state, box_mapping, action_sequence
         else:
             # Score is 0, log and continue to next retry offset
-            print(
-                f"Warning: Generated room with score 0 for seed {current_seed} (offset {retry_offset}). Retrying..."
-            )
+
+            pass
+            # print(
+            #     f"Warning: Generated room with score 0 for seed {current_seed} (offset {retry_offset}). Retrying..."
+            # )
 
     # If loop completes without success
     raise RuntimeWarning(

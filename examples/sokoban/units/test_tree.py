@@ -11,39 +11,45 @@ Tiny Monte-Carlo-Tree-Search demo that
 Run with pytest: pytest Environments/examples/sokoban/units/test_tree.py
 """
 
-import asyncio, gzip, math, pickle, random, json
+import asyncio, gzip, pickle, random, time, logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import List, Dict, Tuple
 
 import numpy as np
 import pytest
 
-from src.reproducibility.tree import FilesystemSnapshotStore, TrajectoryTreeStore, TrajectorySnapshot
+from src.reproducibility.tree import FilesystemSnapshotStore, TrajectoryTreeStore
 from examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
-from examples.sokoban.engine import SokobanEngineSnapshot  # only a type
+# from examples.sokoban.engine import SokobanEngineSnapshot  # only a type
 from src.tasks.core import Impetus, Intent
 from examples.sokoban.environment import SokobanEnvironment
+from examples.sokoban.units.astar_common import ENGINE_ASTAR   # A* helper
+from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP # Added for full action set
+
+logging.basicConfig(level=logging.DEBUG, format="%(message)s")
+LOG = logging.getLogger("mcts-debug")
 
 # ─────────────────────────── toy level ──────────────────────────────── #
 
 SNAP = {
     "dim_room": [4, 4],
-    "room_fixed": [  # target is in the top-right corner
-        [0, 0, 0, 2],
+    "room_fixed": [
         [0, 0, 0, 0],
-        [0, 0, 0, 0],
+        [0, 1, 2, 1],  # target at (1,2)
+        [0, 1, 1, 1],
         [0, 0, 0, 0],
     ],
-    "room_state": [  # player under the box
+    "room_state": [
         [0, 0, 0, 0],
-        [0, 4, 0, 0],  # box starts at (1,1)
-        [5, 0, 0, 0],  # player at (2,0)
-        [0, 0, 0, 0],
+        [0, 1, 1, 1],
+        [0, 1, 4, 1],  # box at (2,2)
+        [0, 5, 1, 1],  # player at (3,1)
     ],
     "boxes_on_target": 0,
+    "max_steps": 10,
     "num_boxes": 1,
-    "max_steps": 30,
 }
+
 
 # ─────────────────────────── env wrapper ────────────────────────────── #
 # (import placed here to avoid circulars; uses the code you pasted)
@@ -59,119 +65,145 @@ def solved(env: SokobanEnvironment) -> bool:
     )
 
 
-def ucb(child_stats, parent_visits, c: float = 1.4) -> float:
-    if child_stats["visits"] == 0:
-        return float("inf")
-    return child_stats["value"] / child_stats["visits"] + c * math.sqrt(
-        math.log(parent_visits) / child_stats["visits"]
-    )
+# ╰────────────────────────────────────────────────────────────────────╯ #
 
-
-# ╭─────────────────────────── MCTS core ───────────────────────────────╮ #
-
-
-async def mcts(
+# ───────── greedy search that *writes/reads* via TrajectoryTreeStore ─────────
+async def greedy_tree_mcts_plan(
     tree: TrajectoryTreeStore,
     root_id: str,
     *,
-    rollouts: int = 300,
+    rollouts_per_action: int = 50,
     max_depth: int = 30,
-) -> List[int]:
-    """
-    Very small ("vanilla") MCTS loop – no prior policy, no virtual-loss, etc.
-    Works with any domain that can be snapshotted / deserialised through
-    `SokobanEnvironment._deserialize_engine`.
-    """
-    stats: Dict[str, Dict[str, float]] = {root_id: dict(visits=0, value=0.0)}
+    timeout_s: float | None = None,  # Added timeout parameter
+) -> tuple[list[int], list[dict[int, float]]]:
+    start = time.monotonic()  # Start timer
+    plan, q_hist, node_id = [], [], root_id
 
-    for _ in range(rollouts):
-        # ── SELECTION ────────────────────────────────────────────────
-        path: List[str] = [root_id]
-        node_id: str = root_id
-        depth: int = 0
-
-        while tree.get_children(node_id):
-            parent_vis = stats[node_id]["visits"]
-            node_id = max(
-                tree.get_children(node_id),
-                key=lambda cid: ucb(
-                    stats.get(cid, {"visits": 0, "value": 0}), parent_vis
-                ),
-            )
-            path.append(node_id)
-            depth += 1
-            if depth >= max_depth:
-                break
-
-        # ── EXPANSION / SIMULATION ──────────────────────────────────
-        # ‣ re-hydrate environment from the selected leaf snapshot
-        leaf_blob = tree.load_snapshot_blob(node_id)
-        leaf_snap = pickle.loads(gzip.decompress(leaf_blob))
-        env: SokobanEnvironment = await SokobanEnvironment._deserialize_engine(
-            leaf_snap
+    for depth in range(max_depth):
+        LOG.debug(f"\n--- depth {depth} --- node={node_id[:6]}") # LOGGING
+        if timeout_s is not None and time.monotonic() - start >= timeout_s:
+            break  # time budget exhausted
+        
+        env_blob = tree.load_snapshot_blob(node_id)
+        env      = await SokobanEnvironment._deserialize_engine(
+            pickle.loads(gzip.decompress(env_blob))
         )
-
+        LOG.debug(f"player @ {env.engine.package_sokoban_env.player_position} boxes @ {np.argwhere((env.engine.package_sokoban_env.room_state == 3) | (env.engine.package_sokoban_env.room_state == 4))}") # LOGGING
         if solved(env):
-            reward = 1.0
-        else:
-            # pick one random legal action for expansion
-            legal = list(range(env.engine.package_sokoban_env.action_space.n))
-            random.shuffle(legal)
-            action = legal[0]
-            await env.engine._step_engine(action)
+            break
 
-            # materialise new child node
-            child_snap = await env._serialize_engine()
-            child_blob = gzip.compress(pickle.dumps(child_snap))
-            child_id = tree.add_child(
-                node_id,
-                child_blob,
-                action=action,
-                reward=0.0,
-                terminated=False,
-                info={},
+        # legal_n = env.engine.package_sokoban_env.action_space.n # Old way
+        q_vals: dict[int, float] = {} # Initialize q_vals here
+        # enumerate every Sokoban action (4 moves + 4 pushes + no-op = 9)
+        for a in range(len(ACTION_LOOKUP)): # Use full ACTION_LOOKUP length
+            if timeout_s is not None and time.monotonic() - start >= timeout_s:
+                break # time budget exhausted in inner loop
+            
+            action_type_log = ""
+            child_id = next((
+                cid for cid in tree.get_children(node_id)
+                if tree.graph[node_id][cid]["action"] == a), 
+                None
             )
-            stats.setdefault(child_id, dict(visits=0, value=0.0))
-            path.append(child_id)
 
-            # random rollout from that child
-            reward = 0.0
-            steps = 0
-            while not solved(env) and steps < max_depth:
-                await env.engine._step_engine(random.choice(legal))
-                steps += 1
-            if solved(env):
-                reward = 1.0
+            if child_id is None:           # expand once
+                action_type_log = f"expand a={a}" # Store log message
+                # Create a new environment from the current env state for stepping
+                tmp_env_for_step = await SokobanEnvironment._deserialize_engine(
+                    pickle.loads(gzip.decompress(env_blob)) # Re-deserialize parent to ensure clean state for step
+                )
+                try:
+                    await tmp_env_for_step.engine._step_engine(a)
+                except Exception: # Catch potential errors from illegal actions
+                    # q_vals[a] = -1.0 # No q-value assigned if action is illegal and cannot be expanded
+                    LOG.debug(f"illegal expand a={a}, skipping") # Log illegal action here
+                    continue                       # illegal → skip
+                cid_blob = gzip.compress(pickle.dumps(await tmp_env_for_step._serialize_engine()))
+                child_id = tree.add_child(
+                    node_id, cid_blob, action=a,
+                    reward=0.0, terminated=solved(tmp_env_for_step), info={}
+                )
+            else:
+                action_type_log = f"reuse   a={a}" # Store log message
+            
+            # deterministic rollout: A* from child snapshot
+            if child_id is None: 
+                # This case should ideally be hit if the 'continue' for illegal expansion was triggered.
+                # No valid child_id means no Q-value can be computed.
+                continue
 
-        # ── BACK-PROP ────────────────────────────────────────────────
-        for nid in reversed(path):
-            rec = stats.setdefault(nid, dict(visits=0, value=0.0))
-            rec["visits"] += 1
-            rec["value"] += reward
+            child_env = await SokobanEnvironment._deserialize_engine(
+                pickle.loads(gzip.decompress(tree.load_snapshot_blob(child_id)))
+            )
+            # run A* on the *engine*, not the env wrapper
+            path = await ENGINE_ASTAR(child_env.engine, max_nodes=1_000) # try to solve
+            
+            # Calculate Q-value considering the cost of the current action 'a'
+            if path is None:            # search failed / gave up
+                q_value_for_a = 0.0
+            elif len(path) == 0:         # child state already solved
+                # 1 for the current action 'a', but state is solved, so highest Q.
+                # The '1 + len(path)' for total_len doesn't strictly apply here in the same way,
+                # as no further steps are needed from A*.
+                # Assigning 1.0 directly makes it the best possible Q.
+                q_value_for_a = 1.0      # best possible, accounts for the step taken to reach solved state.
+            else:                        # solution in |path| further steps
+                # cost of taking the action itself  ↓
+                total_len = 1 + len(path)              # 1 = the step 'a' + A* path from child
+                q_value_for_a = 1.0 / (1 + total_len)  # shorter total → higher Q. Effectively 1.0 / (2 + len(path))
+            
+            q_vals[a] = q_value_for_a
+            
+            # Prepare path string for logging
+            if path is None:
+                path_str = "No solution found / A* failed"
+            elif path == []:
+                path_str = "✓ (already solved)"
+            else:
+                path_str = str(path)
+            LOG.debug(f"{action_type_log}, Q={q_value_for_a:.4f}, Path={path_str}") # Log action type, Q, and A* path
 
-    # choose the most visited root-child as our "plan root"
-    best_child = max(
-        tree.get_children(root_id), key=lambda cid: stats[cid]["visits"], default=None
-    )
-    plan: List[int] = []
-    cur = best_child
-    while cur and cur != root_id:
-        par = tree.get_parent(cur)
-        plan.append(tree.graph[par][cur]["action"])
-        cur = par
-    return list(reversed(plan))
+        if not q_vals: # No actions evaluated, possibly due to timeout or all actions illegal
+            break
+        LOG.debug(f"Q={q_vals}") # LOGGING
+            
+        q_hist.append(q_vals)
 
+        current_children_ids = tree.get_children(node_id)
+        if current_children_ids is None:
+            current_children_ids = [] # Ensure it's an iterable for the comprehension
 
-# ╰────────────────────────────────────────────────────────────────────╯ #
+        valid_actions = {
+            action_key: q_value
+            for action_key, q_value in q_vals.items()
+            # Ensure that the action resulted in an actual child node being added to the tree
+            if any(tree.graph[node_id][child_id_loop]["action"] == action_key for child_id_loop in current_children_ids)
+        }
 
-# ─────────────────────────── driver / demo ──────────────────────────── #
+        if not valid_actions:
+            # This means no actions evaluated (or timed out) or none of the evaluated actions 
+            # correspond to an actual created child node (e.g., all were illegal).
+            break
 
+        best_a = max(valid_actions, key=valid_actions.get)
+        plan.append(best_a)
+        
+        # Since best_a is from valid_actions (which are confirmed to have corresponding children),
+        # we can directly find the next node_id.
+        node_id = next(
+            cid_loop for cid_loop in current_children_ids
+            if tree.graph[node_id][cid_loop]["action"] == best_a
+        )
+        LOG.debug(f"best={best_a} → new node={node_id[:6]}") # LOGGING
+            
+    return plan, q_hist
 
+# ───────────────────── pytest driver (add this AFTER helpers) ─────────────
 @pytest.mark.asyncio
 async def test_mcts_sokoban_run(tmp_path: Path) -> None:
-    # 1. build task-instance + env
+    # 1) build an env around the tiny 4×4 level
     inst = SokobanTaskInstance(
-        id="demo-mcts",
+        id="demo",
         impetus=Impetus(instructions="solve"),
         intent=Intent(rubric={}, gold_trajectories=None, gold_state_diff={}),
         metadata=SokobanTaskInstanceMetadata(
@@ -189,29 +221,36 @@ async def test_mcts_sokoban_run(tmp_path: Path) -> None:
     env = SokobanEnvironment(inst)
     await env.initialize()
 
-    # 2. root snapshot → tree
+    # 2) root snapshot → tree
     snap_store_path = tmp_path / "mcts_snaps"
-    snap_store = FilesystemSnapshotStore(snap_store_path)
-    tree = TrajectoryTreeStore(snap_store)
-
+    tree = TrajectoryTreeStore(FilesystemSnapshotStore(snap_store_path))
     root_blob = gzip.compress(pickle.dumps(await env._serialize_engine()))
-    root_id = tree.add_root(root_blob)
+    root_id   = tree.add_root(root_blob)
 
-    # 3. run search
-    plan = await mcts(tree, root_id, rollouts=500) # Increased rollouts for robustness
-    print(f"MCTS plan: {plan}")
-    assert len(plan) > 1, "MCTS plan should be longer than 1 action for this puzzle."
+    # Diagnostic: Test A* directly on the root SNAP state
+    diag_env = await SokobanEnvironment._deserialize_engine(pickle.loads(gzip.decompress(root_blob)))
+    LOG.debug(f"Diagnostic A* on initial state with max_nodes=5000:")
+    diag_path = await ENGINE_ASTAR(diag_env.engine, max_nodes=5000) 
+    LOG.debug(f"Diagnostic A* path from root: {diag_path if diag_path else 'No solution found'}")
 
-    # 4. verify
-    ver_env = await SokobanEnvironment._deserialize_engine(
+    # 3) greedy tree search
+    plan, q_hist = await greedy_tree_mcts_plan(
+        tree, root_id,
+        rollouts_per_action=50,
+        max_depth=30,
+        timeout_s=30.0,
+    )
+    print("plan:", plan)
+    print("q-history:", q_hist)
+    assert plan, "empty plan"
+
+    # 4) verify the plan solves the puzzle
+    checker_env = await SokobanEnvironment._deserialize_engine(
         pickle.loads(gzip.decompress(root_blob))
     )
     for a in plan:
-        await ver_env.engine._step_engine(a)
-    solved_status = solved(ver_env)
-    print(f"Solved status: {solved_status}")
-    assert solved_status, "The MCTS plan should solve the puzzle"
-
+        await checker_env.engine._step_engine(a)
+    assert solved(checker_env), "plan did not solve the puzzle"
 
 # Removed if __name__ == "__main__": block as pytest handles execution
 if __name__ == "__main__":

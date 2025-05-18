@@ -7,7 +7,20 @@ import numpy as np
 from dataclasses import dataclass
 from examples.sokoban.taskset import SokobanTaskInstance # Assuming this is where SokobanTaskInstance is defined
 from src.reproducibility.core import IReproducibleEngine # Added import
+import logging
 
+# Configure logging for debugging SokobanEngine steps
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+# Suppress verbose PIL debug logs
+logging.getLogger("PIL").setLevel(logging.WARNING)
+
+# --- Action Mapping ---
+ACTION_STRING_TO_INT: Dict[str, int] = {
+    "no operation": 0, "push up": 1, "push down": 2, "push left": 3, "push right": 4,
+    "move up": 5, "move down": 6, "move left": 7, "move right": 8,
+}
+INT_TO_ACTION_STRING: Dict[int, str] = {v: k for k, v in ACTION_STRING_TO_INT.items()}
 
 @dataclass
 class SokobanEngineSnapshot(StatefulEngineSnapshot):
@@ -24,6 +37,7 @@ class SokobanPublicState:
     num_steps: int
     max_steps: int
     last_action_name: str
+    num_boxes: int
 
     def diff(self, prev_state: "SokobanPublicState") -> Dict:
         pass
@@ -103,6 +117,10 @@ from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP
 
 GRID_LOOKUP = {0: " # ", 1: " _ ", 2: " O ", 3: " √ ", 4: " X ", 5: " P ", 6: " S "}
 
+def _count_boxes_on_target(room_state: np.ndarray) -> int:
+    """Return number of boxes currently sitting on target tiles."""
+    return int(np.sum(room_state == 3))
+
 import numpy as np
 from typing import Dict, Any
 from gym_sokoban.envs.sokoban_env import (
@@ -168,7 +186,42 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
 
     def __init__(self, task_instance: TaskInstance):
         self.task_instance = task_instance
-        pass
+        self._total_reward = 0.0  # Initialize total_reward
+
+        init_snap: dict | None = getattr(self.task_instance, "initial_engine_snapshot", None)
+
+        if init_snap:
+            # Initialize package_sokoban_env here using the snapshot
+            self.package_sokoban_env = package_sokoban_env_from_engine_snapshot(init_snap)
+            # Ensure counters are consistent with the snapshot state
+            self.package_sokoban_env.boxes_on_target = _count_boxes_on_target(
+                self.package_sokoban_env.room_state
+            )
+        else:
+            # If no snapshot, create a default PackageSokobanEnv.
+            # This ensures the attribute exists immediately.
+            # _reset_engine will later properly reset/reconfigure it.
+            # Using defaults that are common or match SIMPLE_SNAPSHOT for robustness.
+            default_dim_room = (4,4) 
+            default_max_steps = 10   
+            default_num_boxes = 1    
+
+            dim_param = default_dim_room
+            max_steps_param = default_max_steps
+            num_boxes_param = default_num_boxes
+
+            if hasattr(self.task_instance, "metadata") and self.task_instance.metadata is not None:
+                meta = self.task_instance.metadata
+                dim_param = tuple(getattr(meta, "dim_room", default_dim_room))
+                max_steps_param = getattr(meta, "max_steps", default_max_steps)
+                # num_boxes might be part of puzzle_id or other metadata, using default for simplicity here.
+            
+            self.package_sokoban_env = PackageSokobanEnv(
+                dim_room=dim_param,
+                max_steps=max_steps_param,
+                num_boxes=num_boxes_param,
+                reset=True # Must reset if creating from scratch
+            )
 
     # gives the observation!
     # also final rewards when those are passed in
@@ -213,11 +266,52 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
 
     # yields private state, public state
     async def _step_engine(self, action: int) -> Tuple[SokobanPrivateState, SokobanPublicState]:
-        if action not in self.package_sokoban_env.action_space:
-            raise ValueError(f"Illegal action {action}")
-        obs, r, terminated, info = self.package_sokoban_env.step(
-            action
-        )  # tiny_rgb_array default
+        old_room_state = self.package_sokoban_env.room_state.copy()
+        old_player_position = tuple(self.package_sokoban_env.player_position)
+        # Log action and state before stepping
+        #logger.debug(f"STEP ENGINE: action={action}, name={ACTION_LOOKUP[action]}")
+        #logger.debug("State before step:\n" + _grid_to_text(self.package_sokoban_env.room_state))
+        # Validate action
+        # if action not in self.package_sokoban_env.action_space:
+        #     raise ValueError(f"Illegal action {action}")
+        # # Perform action
+        # --- run package env ---------------------------------------------------
+        obs, r, terminated_gym, info = self.package_sokoban_env.step(action)
+
+        # --- recompute live counters ------------------------------------------
+        live_boxes_on_target = _count_boxes_on_target(self.package_sokoban_env.room_state)
+        self.package_sokoban_env.boxes_on_target = live_boxes_on_target
+
+        # --- robust termination & reward --------------------------------------
+        solved = live_boxes_on_target == self.package_sokoban_env.num_boxes
+        terminated = solved or info.get("maxsteps_used", False)
+
+        # gym_sokoban sometimes reports solved spuriously – correct it
+        if terminated_gym and not solved:
+            terminated = False          # still playing
+            r = -0.1                    # default step penalty
+
+        self._total_reward += r
+
+        # --- Determine if the action was ineffective ---
+        action_name_to_report = info["action.name"]
+        is_no_op_action = (action == 0) # Assuming 0 is "no operation"
+        
+        current_room_state = self.package_sokoban_env.room_state
+        current_player_position = tuple(self.package_sokoban_env.player_position)
+        
+        state_changed = not np.array_equal(old_room_state, current_room_state) or \
+                        old_player_position != current_player_position
+
+        if not is_no_op_action and not state_changed:
+            # Use the global ACTION_LOOKUP imported from gym_sokoban.envs.sokoban_env
+            action_str = ACTION_LOOKUP.get(action, "UnknownAction") 
+            action_name_to_report = f"INVALID_ACTION_NO_CHANGE: {action_str}"
+            # Consider if reward `r` should be further penalized here, though gym_sokoban usually handles step penalties.
+
+        # Log results and state after stepping
+        #logger.debug(f"Action result: reward={r}, terminated={terminated}, info={info}")
+        #logger.debug("State after step:\n" + _grid_to_text(self.package_sokoban_env.room_state))
         priv = SokobanPrivateState(
             reward_last=r,
             total_reward=self._total_reward,
@@ -230,10 +324,11 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
             room_fixed=self.package_sokoban_env.room_fixed.copy(),
             room_state=self.package_sokoban_env.room_state.copy(),
             player_position=tuple(self.package_sokoban_env.player_position),
-            boxes_on_target=self.package_sokoban_env.boxes_on_target,
+            boxes_on_target=live_boxes_on_target,
             num_steps=self.package_sokoban_env.num_env_steps,
             max_steps=self.package_sokoban_env.max_steps,
-            last_action_name=info["action.name"],
+            last_action_name=action_name_to_report,
+            num_boxes=self.package_sokoban_env.num_boxes
         )
 
         return priv, pub
@@ -251,22 +346,24 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
         """
         self._total_reward = 0.0
 
-        init_snap: dict | None = getattr(self.task_instance, "initial_engine_snapshot", None)
+        init_snap: dict | None = getattr(self.task_instance, "initial_engine_snapshot")
 
         if init_snap:
-            # deterministic replay from provided snapshot
-            self.package_sokoban_env = package_sokoban_env_from_engine_snapshot(
-                init_snap
+            self.package_sokoban_env = package_sokoban_env_from_engine_snapshot(init_snap)
+            # ensure counter correct even if snapshot was stale
+            self.package_sokoban_env.boxes_on_target = _count_boxes_on_target(
+                self.package_sokoban_env.room_state
             )
         else:
-            # brand-new level — pull dimensions / boxes from task config if present
-            cfg = getattr(self.task_instance, "config", {})
-            self.package_sokoban_env = PackageSokobanEnv(
-                dim_room=tuple(cfg.get("dim_room", (5, 5))),
-                max_steps=cfg.get("max_steps", 120),
-                num_boxes=cfg.get("num_boxes", 1),
-            )
-            _ = self.package_sokoban_env.reset()
+            raise Exception
+            # # brand-new level — pull dimensions / boxes from task config if present
+            # cfg = getattr(self.task_instance, "config", {})
+            # self.package_sokoban_env = PackageSokobanEnv(
+            #     dim_room=tuple(cfg.get("dim_room", (5, 5))),
+            #     max_steps=cfg.get("max_steps", 120),
+            #     num_boxes=cfg.get("num_boxes", 1),
+            # )
+            # _ = self.package_sokoban_env.reset()
 
         # build first public/private views
         priv = SokobanPrivateState(
@@ -285,6 +382,7 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
             num_steps=self.package_sokoban_env.num_env_steps,
             max_steps=self.package_sokoban_env.max_steps,
             last_action_name="reset",
+            num_boxes=self.package_sokoban_env.num_boxes
         )
         return priv, pub
     

@@ -4,6 +4,7 @@ from examples.sokoban.engine import (
     SynthSokobanObservationCallable,
     SokobanPrivateState,
     SokobanPublicState,
+    SynthSokobanCheckpointObservationCallable,
 )
 from src.environment.shared_engine import GetObservationCallable, InternalObservation
 from src.reproducibility.core import ReproducibleEnvironment
@@ -58,16 +59,44 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
         )
 
     async def checkpoint(self) -> InternalObservation:
-        # create a final observation callable if none provided
+        # Construct public state from the engine's wrapped env
+        pub_state = SokobanPublicState(
+            dim_room=self.engine.package_sokoban_env.dim_room,
+            room_fixed=self.engine.package_sokoban_env.room_fixed.copy(),
+            room_state=self.engine.package_sokoban_env.room_state.copy(),
+            player_position=tuple(self.engine.package_sokoban_env.player_position),
+            boxes_on_target=self.engine.package_sokoban_env.boxes_on_target,
+            num_steps=self.engine.package_sokoban_env.num_env_steps,
+            max_steps=self.engine.package_sokoban_env.max_steps,
+            last_action_name="",  # not tracked for checkpoint
+            num_boxes=self.engine.package_sokoban_env.num_boxes,
+        )
+
+        # Construct private state
+        # Determine terminated and truncated status from the engine's package_sokoban_env
+        terminated = bool(
+            self.engine.package_sokoban_env.boxes_on_target
+            == self.engine.package_sokoban_env.num_boxes
+        )
+        truncated = bool(
+            self.engine.package_sokoban_env.num_env_steps
+            >= self.engine.package_sokoban_env.max_steps
+        )
+        # Reward_last for a checkpoint could be considered 0 or the last step's reward.
+        # For a final summary, total_reward is key. Let's assume reward_last is not critical for checkpoint.
+        priv_state = SokobanPrivateState(
+            reward_last=self.engine.package_sokoban_env.reward_last, # Use last actual reward
+            total_reward=self.engine._total_reward, # type: ignore[attr-defined]
+            terminated=terminated,
+            truncated=truncated,
+        )
+
+        # Use SynthSokobanCheckpointObservationCallable by default
         obs_cb = (
             self.custom_checkpoint_observation_callable
-            or SynthSokobanObservationCallable()
+            or SynthSokobanCheckpointObservationCallable() # Changed default
         )
-        priv_state = SokobanPrivateState(
-            reward_last=0, total_reward=0, terminated=True, truncated=False
-        )
-        pub_state = SokobanPublicState(**{})  # fill from engine if needed
-        return await obs_cb.get_observation(pub_state, priv_state)  # type: ignore[arg-type]
+        return await obs_cb.get_observation(pub_state, priv_state)
 
     # ------------------------------------------------------------------ #
     # helpers                                                             #
