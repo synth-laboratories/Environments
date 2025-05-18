@@ -1,7 +1,47 @@
 [project]
 name = "synth-env"
-authors = [
-    {name = "Josh Purtell", email = "josh@usesynth.ai"},
+version = "0.0.0.dev2"
+description = ""
+authors = [{name = "Synth AI", email = "josh@usesynth.ai"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic",
+    "build>=1.2.2.post1",
+    "pypi",
+    "twine>=4.0.0",
+    "python-dotenv>=1.0.1",
+    "pytest>=8.3.3",
+    "pydantic-openapi-schema>=1.5.1",
+    "pytest-asyncio>=0.24.0",
+    "numpy>=2.2.3",
+    "gym-sokoban>=0.0.6",
+    "setuptools>=75.8.2",
+    "networkx>=3.4.2",
 ]
-version = "0.0.0"
-description = "Environment Infrastructure for Long-Horizon LLM Agents"
+classifiers = []
+
+[project.urls]
+Homepage = "https://github.com/synth-laboratories/Environments"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+
+[tool.hatch.build.targets.wheel]
+packages = ["synth_env"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto" # Or "strict"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore:The configuration option \\\"asyncio_default_fixture_loop_scope\\\" is unset:pytest.PytestDeprecationWarning",
+    "ignore:pkg_resources is deprecated:DeprecationWarning:gym_sokoban.*",
+    "ignore:pkg_resources is deprecated:DeprecationWarning", # General pkg_resources
+    "ignore:Deprecated call to `pkg_resources.declare_namespace.*:DeprecationWarning",
+    "ignore:Starting with ImageIO v3.*:DeprecationWarning:gym_sokoban\\.envs\\.render_utils",
+]
+addopts = "-v" # Keep other options minimal for now
