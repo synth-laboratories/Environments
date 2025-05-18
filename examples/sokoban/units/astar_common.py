@@ -6,18 +6,22 @@ environment-level unit tests.
 import heapq, itertools, json, numpy as np
 from typing import List, Tuple, Callable, Awaitable, Any
 
+
 # ---------- generic utilities ------------------------------------ #
 def _boxes_left(env_pkg) -> int:
     """#targets – #boxes-on-targets (uses raw grids, never the counter)."""
     return int(np.sum(env_pkg.room_fixed == 2) - np.sum(env_pkg.room_state == 3))
 
+
 def solved(obj: Any) -> bool:
     """Expects obj to have a .package_sokoban_env attribute."""
     return _boxes_left(obj.package_sokoban_env) == 0
 
+
 def heuristic(obj: Any) -> int:
     """Expects obj to have a .package_sokoban_env attribute."""
     return _boxes_left(obj.package_sokoban_env)
+
 
 # ---------- single reusable A* ----------------------------------- #
 async def astar(
@@ -67,19 +71,23 @@ async def astar(
             )
     return []
 
+
 # convenience lambdas for the two concrete APIs
-async def _engine_step(e, a):       # `SokobanEngine`
+async def _engine_step(e, a):  # `SokobanEngine`
     await e._step_engine(a)
 
-async def _env_step(env, a):        # `SokobanEnvironment` (expects Move wrapper)
+
+async def _env_step(env, a):  # `SokobanEnvironment` (expects Move wrapper)
     from examples.sokoban.units.test_sokoban_environment import Move
+
     await env.step([[Move(a)]])
+
 
 ENGINE_ASTAR = lambda eng, **kw: astar(
     eng, _engine_step, eng.__class__._deserialize_engine, **kw
 )
-ENV_ASTAR   = lambda env, **kw: astar(
+ENV_ASTAR = lambda env, **kw: astar(
     env.engine, _env_step, env.engine.__class__._deserialize_engine, **kw
 )
 
-# ----------------------------------------------------------------- # 
+# ----------------------------------------------------------------- #

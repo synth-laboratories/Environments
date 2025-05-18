@@ -1,7 +1,16 @@
-from src.tasks.core import Task, TaskInstance, TaskInstanceMetadata, TaskInstanceMetadataFilter, TaskInstanceSet
+from src.tasks.core import (
+    Task,
+    TaskInstance,
+    TaskInstanceMetadata,
+    TaskInstanceMetadataFilter,
+    TaskInstanceSet,
+)
 from uuid import uuid4, UUID
 from src.tasks.core import SplitInfo, Impetus, Intent
-from examples.sokoban.engine_helpers.room_utils import generate_room, get_shortest_action_path
+from examples.sokoban.engine_helpers.room_utils import (
+    generate_room,
+    get_shortest_action_path,
+)
 from dataclasses import dataclass, asdict, fields
 from typing import Tuple
 import os
@@ -10,7 +19,7 @@ sokoban_task = Task(
     global_premises="Procedural Sokoban task generation",
     global_constraints="",
     global_objectives="Push all boxes onto target locations",
-    shared_env_params={}
+    shared_env_params={},
 )
 
 # Configuration parameters
@@ -37,6 +46,7 @@ DIFFICULTY_CONFIGS = {
     },
 }
 
+
 @dataclass
 class SokobanTaskInstanceMetadata(TaskInstanceMetadata):
     difficulty: str
@@ -47,43 +57,48 @@ class SokobanTaskInstanceMetadata(TaskInstanceMetadata):
     seed: int
     generation_params: str
 
+
 @dataclass
 class SokobanTaskInstance(TaskInstance):
     async def serialize(self) -> dict:
         data = asdict(self)
-        if 'id' in data and isinstance(data['id'], UUID):
-            data['id'] = str(data['id'])
-        if 'intent' in data and data['intent'] is not None:
-            if 'deterministic_eval_functions' in data['intent']:
-                data['intent']['deterministic_eval_functions'] = []
+        if "id" in data and isinstance(data["id"], UUID):
+            data["id"] = str(data["id"])
+        if "intent" in data and data["intent"] is not None:
+            if "deterministic_eval_functions" in data["intent"]:
+                data["intent"]["deterministic_eval_functions"] = []
         return data
 
     @classmethod
     async def deserialize(cls, data: dict) -> "SokobanTaskInstance":
         """Gracefully accept non-UUID ids (e.g. 'demo-mcts')."""
-        if 'id' in data:
+        if "id" in data:
             try:
-                data['id'] = UUID(str(data['id']))
+                data["id"] = UUID(str(data["id"]))
             except (ValueError, TypeError, AttributeError):
                 pass  # keep original string
 
-        if 'impetus' in data and isinstance(data['impetus'], dict):
-            data['impetus'] = Impetus(**data['impetus'])
+        if "impetus" in data and isinstance(data["impetus"], dict):
+            data["impetus"] = Impetus(**data["impetus"])
 
-        if 'intent' in data and isinstance(data['intent'], dict):
-            intent_data = data['intent']
-            intent_data['deterministic_eval_functions'] = []
-            if 'gold_trajectories' in intent_data and intent_data['gold_trajectories'] is not None:
-                pass 
-            data['intent'] = Intent(**intent_data)
+        if "intent" in data and isinstance(data["intent"], dict):
+            intent_data = data["intent"]
+            intent_data["deterministic_eval_functions"] = []
+            if (
+                "gold_trajectories" in intent_data
+                and intent_data["gold_trajectories"] is not None
+            ):
+                pass
+            data["intent"] = Intent(**intent_data)
 
-        if 'metadata' in data and isinstance(data['metadata'], dict):
-            data['metadata'] = SokobanTaskInstanceMetadata(**data['metadata'])
+        if "metadata" in data and isinstance(data["metadata"], dict):
+            data["metadata"] = SokobanTaskInstanceMetadata(**data["metadata"])
 
         constructor_field_names = {f.name for f in fields(cls)}
         filtered_data = {k: v for k, v in data.items() if k in constructor_field_names}
 
         return cls(**filtered_data)
+
 
 async def create_sokoban_taskset() -> TaskInstanceSet:
     """Generates Sokoban task instances wrapped in a TaskInstanceSet."""
@@ -105,7 +120,11 @@ async def create_sokoban_taskset() -> TaskInstanceSet:
             path_length = len(shortest_actions)
 
             impetus = Impetus(instructions=config["impetus_prompt"])
-            intent = Intent(rubric={"goal": "Push all boxes onto target locations."}, gold_trajectories=None, gold_state_diff={})
+            intent = Intent(
+                rubric={"goal": "Push all boxes onto target locations."},
+                gold_trajectories=None,
+                gold_state_diff={},
+            )
             metadata = SokobanTaskInstanceMetadata(
                 difficulty=difficulty,
                 num_boxes=config["num_boxes"],
@@ -130,16 +149,18 @@ async def create_sokoban_taskset() -> TaskInstanceSet:
     class NumBoxesFilter(TaskInstanceMetadataFilter):
         def __init__(self, num_boxes):
             self.num_boxes = num_boxes
+
         def __call__(self, instance):
-            if hasattr(instance.metadata, 'num_boxes'):
+            if hasattr(instance.metadata, "num_boxes"):
                 return instance.metadata.num_boxes == self.num_boxes
             return False
 
     class DimRoomFilter(TaskInstanceMetadataFilter):
         def __init__(self, dim_room):
             self.dim_room = dim_room
+
         def __call__(self, instance):
-            if hasattr(instance.metadata, 'dim_room'):
+            if hasattr(instance.metadata, "dim_room"):
                 return instance.metadata.dim_room == self.dim_room
             return False
 
@@ -147,8 +168,9 @@ async def create_sokoban_taskset() -> TaskInstanceSet:
         def __init__(self, min_length=None, max_length=None):
             self.min_length = min_length
             self.max_length = max_length
+
         def __call__(self, instance):
-            if not hasattr(instance.metadata, 'shortest_path_length'):
+            if not hasattr(instance.metadata, "shortest_path_length"):
                 return False
             length = instance.metadata.shortest_path_length
             if self.min_length is not None and length < self.min_length:
@@ -161,7 +183,9 @@ async def create_sokoban_taskset() -> TaskInstanceSet:
     test_filter = PathLengthFilter(max_length=10)
     val_ids = {inst.id for inst in instances if val_filter(inst)}
     # remove anything already tagged as validation
-    test_ids = {inst.id for inst in instances if test_filter(inst) and inst.id not in val_ids}
+    test_ids = {
+        inst.id for inst in instances if test_filter(inst) and inst.id not in val_ids
+    }
     split_info = SplitInfo(
         val_instance_ids=val_ids,
         test_instance_ids=test_ids,
@@ -175,6 +199,7 @@ async def create_sokoban_taskset() -> TaskInstanceSet:
         split_info=split_info,
     )
 
+
 # Example usage
 if __name__ == "__main__":
     import asyncio, json
@@ -187,8 +212,10 @@ if __name__ == "__main__":
     async def main():
         taskset = await create_sokoban_taskset()
 
-        serialized = await asyncio.gather(*(inst.serialize() for inst in taskset.instances))
-        
+        serialized = await asyncio.gather(
+            *(inst.serialize() for inst in taskset.instances)
+        )
+
         output_dir = os.path.dirname(OUTPUT_FILE_PATH)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
@@ -200,19 +227,23 @@ if __name__ == "__main__":
         with open(OUTPUT_FILE_PATH, "r") as f:
             read_serialized_data = json.load(f)
 
-        deserialized = await asyncio.gather(*(SokobanTaskInstance.deserialize(data) for data in read_serialized_data))
+        deserialized = await asyncio.gather(
+            *(SokobanTaskInstance.deserialize(data) for data in read_serialized_data)
+        )
         print(f"Deserialized {len(deserialized)} instances.")
-        
+
         if any(inst is None for inst in deserialized):
             print("Error: Deserialization returned None for some instances.")
             for i, inst in enumerate(deserialized):
                 if inst is None:
-                    print(f"Instance at index {i} is None. Serialized data: {read_serialized_data[i]}")
+                    print(
+                        f"Instance at index {i} is None. Serialized data: {read_serialized_data[i]}"
+                    )
             return
 
         val_ids = taskset.split_info.val_instance_ids
         test_ids = taskset.split_info.test_instance_ids
-        all_ids = {inst.id for inst in deserialized} 
+        all_ids = {inst.id for inst in deserialized}
         train_ids = all_ids - val_ids - test_ids
 
         train = [inst for inst in deserialized if inst.id in train_ids]
@@ -224,5 +255,3 @@ if __name__ == "__main__":
         print(f"Test set ({len(test)} instances): {[str(i.id) for i in test]}")
 
     asyncio.run(main())
-
-

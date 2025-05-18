@@ -7,7 +7,6 @@ from abc import abstractmethod
 
 
 class StatefulEnvironment(Environment):
-
     @abstractmethod
     async def initialize(self) -> InternalObservation:
         pass

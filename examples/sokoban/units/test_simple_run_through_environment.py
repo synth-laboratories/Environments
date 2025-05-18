@@ -22,7 +22,7 @@ from examples.sokoban.taskset import (
 from src.tasks.core import TaskInstance, Impetus, Intent
 
 # shared A* / heuristic utilities
-from examples.sokoban.units.astar_common import ENGINE_ASTAR, solved # Use ENGINE_ASTAR
+from examples.sokoban.units.astar_common import ENGINE_ASTAR, solved  # Use ENGINE_ASTAR
 
 
 # ---------------- test fixture snapshot ---------------------------------- #
@@ -31,15 +31,15 @@ SIMPLE_SNAPSHOT: Dict[str, Any] = {
     "dim_room": [4, 4],
     "room_fixed": [
         [0, 0, 0, 0],
-        [0, 1, 2, 1],   # target at (1,2)
+        [0, 1, 2, 1],  # target at (1,2)
         [0, 1, 1, 1],
         [0, 0, 0, 0],
     ],
     "room_state": [
         [0, 0, 0, 0],
         [0, 1, 1, 1],
-        [0, 1, 4, 1],   # box at (2,2)
-        [0, 5, 1, 1],   # player at (3,1)
+        [0, 1, 4, 1],  # box at (2,2)
+        [0, 5, 1, 1],  # player at (3,1)
     ],
     "boxes_on_target": 0,
     "max_steps": 10,
@@ -97,8 +97,8 @@ async def test_environment_solve_and_replay():
     # plan search – use the engine step to avoid costly renders
     # Use ENGINE_ASTAR which is set up for engine-level operations
     plan = await ENGINE_ASTAR(
-        env.engine,            # Pass the engine directly
-        max_nodes=200,            # tighter breaker
+        env.engine,  # Pass the engine directly
+        max_nodes=200,  # tighter breaker
     )
     assert plan, "Environment A* failed to find a plan"
     assert len(plan) == 2  # expect the 2-move solution
@@ -106,7 +106,10 @@ async def test_environment_solve_and_replay():
     # verify replay
     replayed_successfully = await replay(env, root_snapshot, plan)
     assert replayed_successfully, "Plan did not solve the puzzle upon replay"
-    print(f"Test passed: Plan {plan} (length {len(plan)}) replayed successfully and solved the puzzle.")
+    print(
+        f"Test passed: Plan {plan} (length {len(plan)}) replayed successfully and solved the puzzle."
+    )
+
 
 if __name__ == "__main__":
     asyncio.run(test_environment_solve_and_replay())

@@ -101,12 +101,12 @@ async def test_unsolvable_level_not_solved():
     # Re-initialize environment for replay to ensure a clean state
     env_for_replay = await SokobanEnvironment._deserialize_engine(root_snapshot)
     # ★ give the new Environment instance the attribute the heuristic expects
-    env_for_replay.package_sokoban_env = env_for_replay.engine.package_sokoban_env # type: ignore[attr-defined]
+    env_for_replay.package_sokoban_env = env_for_replay.engine.package_sokoban_env  # type: ignore[attr-defined]
 
     for action_code in plan or []:
         await env_for_replay.step([[Move(action_code)]])
-    
-    solved_after_replay = solved(env_for_replay) # Use the existing buggy solved()
+
+    solved_after_replay = solved(env_for_replay)  # Use the existing buggy solved()
     assert not solved_after_replay, "Environment incorrectly reports a solved state"
 
     # If the current code base still has the buggy `solved()` that checks the

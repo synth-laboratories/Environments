@@ -16,7 +16,8 @@ Note - this repo is under extremely active development. Hic sunt dracones, if no
 
 # Supported Environments
 [] Sokoban (maturing, not active dev)
-    This environment is not of our own making! Please credit the great researchers at [Deepmind](https://deepmind.google/discover/blog/agents-that-imagine-and-plan/) and [Ragen](https://ragen-ai.github.io), among others.
+    - This environment is not of our own making! Please credit the great researchers at [Deepmind](https://deepmind.google/discover/blog/agents-that-imagine-and-plan/) and [Ragen](https://ragen-ai.github.io), among others.
+    - Checkout test_synth_react.py for a hello world example!
 [] Crafter-Classic (active dev)
 
 ...

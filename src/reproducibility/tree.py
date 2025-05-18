@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional, Tuple, Iterable
 
 import networkx as nx
 
-#from filesystem_snapshot_store import FilesystemSnapshotStore  # ← your re-impl
+# from filesystem_snapshot_store import FilesystemSnapshotStore  # ← your re-impl
 
 log = logging.getLogger(__name__)
 
@@ -97,8 +97,7 @@ class FilesystemSnapshotStore:
         except Exception as e:
             log.error(f"Failed to write snapshot: {e}", exc_info=True)
             raise
-    
-    
+
     def read(self, key: str) -> Optional[bytes]:
         """
         Retrieves the raw *compressed* snapshot bytes for a given key.
@@ -128,6 +127,7 @@ class FilesystemSnapshotStore:
 
 # Global instance (optional, could use dependency injection)
 # snapshot_store = FilesystemSnapshotStore()
+
 
 class TrajectorySnapshot:
     """

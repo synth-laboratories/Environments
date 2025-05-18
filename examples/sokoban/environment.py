@@ -20,14 +20,11 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
         custom_step_obs: Optional[GetObservationCallable] = None,
         custom_ckpt_obs: Optional[GetObservationCallable] = None,
     ):
+        self.name = "Sokoban"
         self.task_instance = task_instance
         self.custom_step_observation_callable = custom_step_obs
         self.custom_checkpoint_observation_callable = custom_ckpt_obs
         self.engine: SokobanEngine = SokobanEngine(task_instance)
-
-    # ------------------------------------------------------------------ #
-    # lifecycle                                                           #
-    # ------------------------------------------------------------------ #
 
     async def initialize(self) -> InternalObservation:
         priv, pub = await self.engine._reset_engine()
@@ -36,14 +33,9 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
         )
 
     async def terminate(self) -> InternalObservation:
-        # no special engine cleanup needed beyond GC, return final board
         priv, pub = await self.engine._serialize_engine(), None  # placeholder
         obs_dict = {"terminated": True, "message": "Environment terminated."}
         return obs_dict  # type: ignore[return-value]
-
-    # ------------------------------------------------------------------ #
-    # main API                                                            #
-    # ------------------------------------------------------------------ #
 
     def validate_tool_calls(self, tool_calls: List[List[EnvToolCall]]) -> None:
         if not tool_calls or not isinstance(tool_calls[0][0], EnvToolCall):
@@ -85,8 +77,8 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
         # Reward_last for a checkpoint could be considered 0 or the last step's reward.
         # For a final summary, total_reward is key. Let's assume reward_last is not critical for checkpoint.
         priv_state = SokobanPrivateState(
-            reward_last=self.engine.package_sokoban_env.reward_last, # Use last actual reward
-            total_reward=self.engine._total_reward, # type: ignore[attr-defined]
+            reward_last=self.engine.package_sokoban_env.reward_last,  # Use last actual reward
+            total_reward=self.engine._total_reward,  # type: ignore[attr-defined]
             terminated=terminated,
             truncated=truncated,
         )
@@ -94,14 +86,10 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
         # Use SynthSokobanCheckpointObservationCallable by default
         obs_cb = (
             self.custom_checkpoint_observation_callable
-            or SynthSokobanCheckpointObservationCallable() # Changed default
+            or SynthSokobanCheckpointObservationCallable()  # Changed default
         )
         return await obs_cb.get_observation(pub_state, priv_state)
-
-    # ------------------------------------------------------------------ #
-    # helpers                                                             #
-    # ------------------------------------------------------------------ #
-
+    
     async def _to_observation(
         self,
         priv: SokobanPrivateState,
@@ -111,10 +99,6 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
         return await (obs_cb or SynthSokobanObservationCallable()).get_observation(
             pub, priv
         )
-
-    # ------------------------------------------------------------------ #
-    # reproducibility passthrough                                         #
-    # ------------------------------------------------------------------ #
 
     async def _serialize_engine(self) -> Any:
         return await self.engine._serialize_engine()

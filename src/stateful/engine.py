@@ -1,11 +1,11 @@
 from src.environment.shared_engine import Engine
 
+
 class StatefulEngineSnapshot:
     pass
 
 
 class StatefulEngine(Engine):
-    
     async def serialize(self):
         pass
 

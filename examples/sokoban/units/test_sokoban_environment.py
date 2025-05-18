@@ -75,7 +75,7 @@ async def test_environment_solve_and_replay():
 
     env = SokobanEnvironment(ti)
     await env.initialize()
-    
+
     # speed-up: disable image rendering inside gym-sokoban
     env.engine.package_sokoban_env.observation_mode = "raw"
 
@@ -84,16 +84,19 @@ async def test_environment_solve_and_replay():
     # plan search (pass custom step_fn using our Move wrapper)
     plan = await astar(
         root_obj=env,
-        step_fn=lambda e, act: e.step([[Move(act)]]), # Renamed action to act to avoid conflict
+        step_fn=lambda e, act: e.step(
+            [[Move(act)]]
+        ),  # Renamed action to act to avoid conflict
         deserialize_fn=SokobanEnvironment._deserialize_engine,
-        max_nodes=500,            # circuit-breaker
+        max_nodes=500,  # circuit-breaker
     )
     assert plan, "Environment A* failed to find a plan"
-    assert len(plan) == 2                   # expect the 2-move solution
+    assert len(plan) == 2  # expect the 2-move solution
 
     # verify replay
     assert await replay(env, root_snapshot, plan)
 
+
 if __name__ == "__main__":
     asyncio.run(test_environment_solve_and_replay())
-    pass 
+    pass
