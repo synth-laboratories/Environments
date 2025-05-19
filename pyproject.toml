@@ -21,6 +21,7 @@ dependencies = [
     "networkx>=3.4.2",
     "synth-ai==0.1.0.dev52",
     "synth-sdk==0.3.1.dev21",
+    "crafter>=1.8.3",
 ]
 classifiers = []
 
