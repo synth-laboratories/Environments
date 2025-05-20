@@ -8,17 +8,13 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic",
-    "build>=1.2.2.post1",
-    "pypi",
-    "twine>=4.0.0",
     "python-dotenv>=1.0.1",
     "pytest>=8.3.3",
     "pydantic-openapi-schema>=1.5.1",
     "pytest-asyncio>=0.24.0",
     "numpy>=2.2.3",
-    "setuptools>=75.8.2",
     "networkx>=3.4.2",
-    "synth-ai==0.1.0.dev52",
+    "synth-ai==0.1.0.dev53",
     "synth-sdk==0.3.1.dev21",
     "crafter>=1.8.3",
     "fastapi>=0.115.12",
@@ -32,13 +28,10 @@ classifiers = []
 Homepage = "https://github.com/synth-laboratories/Environments"
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.uv.sources]
-
-[tool.hatch.build.targets.wheel]
-packages = ["synth_env"]
 
 [tool.hatch.envs.default.env]
 path = ".venv"
@@ -54,3 +47,7 @@ filterwarnings = [
     "ignore:Starting with ImageIO v3.*:DeprecationWarning:gym_sokoban\\.envs\\.render_utils",
 ]
 addopts = "-v" # Keep other options minimal for now
+
+[tool.setuptools.packages.find]
+where = ["src"]
+# include = ["*"] # Optional: often not needed if all dirs in src are packages

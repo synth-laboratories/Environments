@@ -2249,15 +2249,6 @@ wheels = [
 ]
 
 [[package]]
-name = "setuptools"
-version = "80.7.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9e/8b/dc1773e8e5d07fd27c1632c45c1de856ac3dbf09c0147f782ca6d990cf15/setuptools-80.7.1.tar.gz", hash = "sha256:f6ffc5f0142b1bd8d0ca94ee91b30c0ca862ffd50826da1ea85258a06fd94552", size = 1319188 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a1/18/0e835c3a557dc5faffc8f91092f62fc337c1dab1066715842e7a4b318ec4/setuptools-80.7.1-py3-none-any.whl", hash = "sha256:ca5cc1069b85dc23070a6628e6bcecb3292acac802399c7f8edc0100619f9009", size = 1200776 },
-]
-
-[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2307,7 +2298,7 @@ wheels = [
 
 [[package]]
 name = "synth-ai"
-version = "0.1.0.dev52"
+version = "0.1.0.dev53"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anthropic" },
@@ -2326,9 +2317,9 @@ dependencies = [
     { name = "pytest-timeout" },
     { name = "together" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/89/d4/697c604d5d95548fdadb4c35d44b7d994bbba22b6ad5a255a8978de6f174/synth_ai-0.1.0.dev52.tar.gz", hash = "sha256:8d8f6e8f3d4d80b615735128db08cac7255ef4de26f896a6dac7317fd7fd4b73", size = 29852 }
+sdist = { url = "https://files.pythonhosted.org/packages/86/6e/336bbe5f0828df2a485a74e9fd194ed26555510eb4f856872d443419f343/synth_ai-0.1.0.dev53.tar.gz", hash = "sha256:9c06b822ec2bc17e5d6870d9dc8bf2a485da40306fe9aeabd277b7794288e963", size = 29825 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/21/f7c56a0774b8563cbdf1c83a78978d64fe8c93a0a7513cbf60da975d7fff/synth_ai-0.1.0.dev52-py3-none-any.whl", hash = "sha256:1629ebdbdd06bdb1fc8a98d569346bb53cb9760da98584d4f1c54467309f275e", size = 37492 },
+    { url = "https://files.pythonhosted.org/packages/c7/5c/9f3078d0ef04dfb041f6eff9dae3f502f352d51f06aa28d4678f4c0303cc/synth_ai-0.1.0.dev53-py3-none-any.whl", hash = "sha256:ecbdbce8c820c0ac60bf5e4b930484abf0fadbd3c1f999439fc224015e7df930", size = 37491 },
 ]
 
 [[package]]
@@ -2336,7 +2327,6 @@ name = "synth-env"
 version = "0.0.0.dev3"
 source = { editable = "." }
 dependencies = [
-    { name = "build" },
     { name = "crafter" },
     { name = "fastapi" },
     { name = "gym-sokoban" },
@@ -2345,20 +2335,16 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pydantic-openapi-schema" },
-    { name = "pypi" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "python-dotenv" },
-    { name = "setuptools" },
     { name = "synth-ai" },
     { name = "synth-sdk" },
-    { name = "twine" },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "build", specifier = ">=1.2.2.post1" },
     { name = "crafter", specifier = ">=1.8.3" },
     { name = "fastapi", specifier = ">=0.115.12" },
     { name = "gym-sokoban", specifier = ">=0.0.6" },
@@ -2367,14 +2353,11 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.3" },
     { name = "pydantic" },
     { name = "pydantic-openapi-schema", specifier = ">=1.5.1" },
-    { name = "pypi" },
     { name = "pytest", specifier = ">=8.3.3" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
-    { name = "setuptools", specifier = ">=75.8.2" },
-    { name = "synth-ai", specifier = "==0.1.0.dev52" },
+    { name = "synth-ai", specifier = "==0.1.0.dev53" },
     { name = "synth-sdk", specifier = "==0.3.1.dev21" },
-    { name = "twine", specifier = ">=4.0.0" },
     { name = "uvicorn", specifier = ">=0.34.2" },
 ]
 
