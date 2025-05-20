@@ -6,7 +6,7 @@ import tempfile
 import json
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
-from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from stateful.engine import StatefulEngine, StatefulEngineSnapshot
 
 
 # Snapshot for SWEBenchEngine state

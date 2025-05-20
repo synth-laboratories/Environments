@@ -13,13 +13,13 @@ import pytest
 # ––––– app imports ––––– #
 from examples.sokoban.environment import SokobanEnvironment  # <- your wrapper
 from examples.sokoban.engine import SokobanEngineSnapshot  # same snapshot type
-from src.environment.tools import EnvToolCall  # call interface
+from environment.tools import EnvToolCall  # call interface
 
 from examples.sokoban.taskset import (
     SokobanTaskInstanceMetadata,
     SokobanTaskInstance,
 )
-from src.tasks.core import TaskInstance, Impetus, Intent
+from tasks.core import TaskInstance, Impetus, Intent
 
 # shared A* / heuristic utilities
 from examples.sokoban.units.astar_common import ENGINE_ASTAR, solved  # Use ENGINE_ASTAR

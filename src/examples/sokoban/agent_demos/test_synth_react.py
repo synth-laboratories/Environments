@@ -22,10 +22,10 @@ from examples.sokoban.engine import (
     ACTION_STRING_TO_INT,
     INT_TO_ACTION_STRING,
 )
-from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from environment.shared_engine import GetObservationCallable, InternalObservation
 from examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
-from src.tasks.core import Impetus, Intent, TaskInstance
-from src.environment.tools import EnvToolCall
+from tasks.core import Impetus, Intent, TaskInstance
+from environment.tools import EnvToolCall
 from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP
 import re
 
@@ -171,7 +171,9 @@ class ReActAgent:
             system_message=system_message, user_message=prompt, tools=self.tools
         )
 
-        assert response_obj.tool_calls, "Response object didn't have tool call"
+        assert (
+            response_obj.tool_calls
+        ), f"Response object didn't have tool call - {response_obj}"
 
         tool_calls = None
 

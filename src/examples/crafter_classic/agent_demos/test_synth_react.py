@@ -26,10 +26,10 @@ ACTION_STRING_TO_INT: Dict[str, int] = CRAFTER_ACTION_MAP
 INT_TO_ACTION_STRING: Dict[int, str] = {v: k for k, v in CRAFTER_ACTION_MAP.items()}
 
 
-from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from environment.shared_engine import GetObservationCallable, InternalObservation
 from examples.crafter_classic.taskset import CrafterTaskInstance, CrafterTaskInstanceMetadata
-from src.tasks.core import Impetus, Intent, TaskInstance
-from src.environment.tools import EnvToolCall
+from tasks.core import Impetus, Intent, TaskInstance
+from environment.tools import EnvToolCall
 import re
 
 import logging

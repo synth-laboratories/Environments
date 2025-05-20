@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from synth_ai.zyk import LM
 from synth_sdk.tracing.abstractions import Dataset, RewardSignal, TrainingQuestion
 from synth_sdk.tracing.utils import get_system_id
-from src.environment.tools import EnvToolCall
+from environment.tools import EnvToolCall
 
 from examples.enron.engine import ACTION_SEARCH, ACTION_ANSWER
 from examples.enron.environment import (

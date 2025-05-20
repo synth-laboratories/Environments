@@ -1,4 +1,4 @@
-from src.v0_observability.log import EnvironmentStepRecord
+from v0_observability.log import EnvironmentStepRecord
 
 
 class State:

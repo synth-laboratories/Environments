@@ -12,11 +12,11 @@ from examples.crafter_classic.engine import (
     CrafterEngineSnapshot,
 )
 from examples.crafter_classic.taskset import CrafterTaskInstance
-from src.environment.shared_engine import GetObservationCallable, InternalObservation
-from src.reproducibility.core import ReproducibleEnvironment
-from src.stateful.core import StatefulEnvironment
-from src.tasks.core import TaskInstance
-from src.environment.tools.base import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
+from environment.shared_engine import GetObservationCallable, InternalObservation
+from reproducibility.core import ReproducibleEnvironment
+from stateful.core import StatefulEnvironment
+from tasks.core import TaskInstance
+from environment.tools import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
 from pydantic import BaseModel, Field
 
 

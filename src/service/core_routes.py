@@ -3,9 +3,9 @@ from uuid import uuid4
 from typing import Dict, Any, List
 from types import SimpleNamespace
 
-from src.service.registry import get_environment_cls, list_supported_env_types
-from src.tasks.core import TaskInstance
-from src.stateful.core import StatefulEnvironment
+from service.registry import get_environment_cls, list_supported_env_types
+from tasks.core import TaskInstance
+from stateful.core import StatefulEnvironment
 
 api_router = APIRouter()
 

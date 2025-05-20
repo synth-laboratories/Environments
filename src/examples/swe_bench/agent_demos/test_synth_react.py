@@ -18,7 +18,7 @@ from typing import Any, Dict, Deque, List, Optional
 from pydantic import BaseModel, Field
 
 from synth_ai.zyk import LM
-from src.environment.tools import EnvToolCall
+from environment.tools import EnvToolCall
 from synth_sdk.tracing.utils import get_system_id
 
 from examples.swe_bench.environment import (

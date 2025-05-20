@@ -1,12 +1,12 @@
-from src.environment.core import Environment
-from src.environment.shared_engine import InternalObservation
-from src.stateful.state import State
-from typing import List
-from src.environment.tools import EnvToolCall
 from abc import abstractmethod
+from typing import List
+
+from environment.shared_engine import Engine, InternalObservation
+from environment.tools import EnvToolCall
+from .state import State
 
 
-class StatefulEnvironment(Environment):
+class StatefulEnvironment(Engine):
     @abstractmethod
     async def initialize(self) -> InternalObservation:
         pass
@@ -17,11 +17,11 @@ class StatefulEnvironment(Environment):
 
     # main external api
     @abstractmethod
-    def validate_tool_calls(self, EnvToolCall):
+    def validate_tool_calls(self, tool_calls: EnvToolCall):
         pass
 
     @abstractmethod
-    async def step(self, tool_calls: List[List[EnvToolCall]]) -> InternalObservation:
+    async def step(self, tool_calls: List[EnvToolCall]) -> InternalObservation:
         pass
 
     @abstractmethod

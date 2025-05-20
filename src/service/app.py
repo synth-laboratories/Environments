@@ -1,8 +1,8 @@
 import sys; print(f"SYS.PATH IN APP.PY: {sys.path}")
 
 from fastapi import FastAPI
-from src.service.registry import list_supported_env_types, register_environment
-from src.service.core_routes import api_router
+from service.registry import list_supported_env_types, register_environment
+from service.core_routes import api_router
 
 # Register environments at import time (so registry is populated immediately)
 import examples.sokoban.environment as sok

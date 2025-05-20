@@ -34,9 +34,9 @@ from examples.nmmo_classic.taskset import (
     NMMO3TaskInstanceMetadata,
 )
 
-from src.tasks.core import Impetus, Intent
-from src.environment.tools import EnvToolCall
-from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from tasks.core import Impetus, Intent
+from environment.tools import EnvToolCall
+from environment.shared_engine import GetObservationCallable, InternalObservation
 
 logging.disable(logging.CRITICAL)
 

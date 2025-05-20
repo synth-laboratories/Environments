@@ -19,7 +19,7 @@ import pufferlib.emulation as pe
 import numpy as np
 import pandas as pd
 
-from src.tasks.core import (
+from tasks.core import (
     Task,
     Impetus,
     Intent,

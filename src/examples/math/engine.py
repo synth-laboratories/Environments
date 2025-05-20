@@ -7,9 +7,9 @@ from dataclasses import dataclass
 
 from datasets import load_dataset
 
-from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
-from src.environment.shared_engine import GetObservationCallable, InternalObservation
-from src.tasks.core import TaskInstance as BaseTaskInstance
+from stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from environment.shared_engine import GetObservationCallable, InternalObservation
+from tasks.core import TaskInstance as BaseTaskInstance
 
 
 # --- Task Loading and Scoring (Moved from environment.py) ---

@@ -17,6 +17,6 @@ if [ ! -f "$VENV_PYTHON" ]; then
 fi
 
 # Run uvicorn using the Python interpreter from the .venv
-"$VENV_PYTHON" -m uvicorn src.service.app:app --host 0.0.0.0 --port 8000
+"$VENV_PYTHON" -m uvicorn service.app:app --host 0.0.0.0 --port 8000
 
 echo "Environment Service stopped." 

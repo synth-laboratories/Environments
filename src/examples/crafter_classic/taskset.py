@@ -14,7 +14,7 @@ import numpy as np
 import crafter
 from crafter import objects
 
-from src.tasks.core import (
+from tasks.core import (
     Impetus,
     Intent,
     SplitInfo,

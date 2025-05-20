@@ -1,6 +1,5 @@
 from typing import Optional, Dict, List, Callable, Set
-from src.v0_observability.history import SynthGlobalTrajectory
-from src.stateful.engine import StatefulEngineSnapshot
+from v0_observability.history import SynthGlobalTrajectory
 from uuid import UUID
 from abc import abstractmethod
 from dataclasses import dataclass, field
@@ -42,7 +41,7 @@ class TaskInstance:
     intent: Intent
     metadata: TaskInstanceMetadata
     is_reproducible: bool
-    initial_engine_snapshot: Optional[StatefulEngineSnapshot]
+    initial_engine_snapshot: Optional["StatefulEngineSnapshot"]
 
     @abstractmethod
     async def serialize(self) -> Dict:

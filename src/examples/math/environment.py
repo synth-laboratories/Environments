@@ -1,8 +1,8 @@
 from typing import Optional, List
-from src.environment.shared_engine import GetObservationCallable, InternalObservation
-from src.reproducibility.core import ReproducibleEnvironment
-from src.stateful.core import StatefulEnvironment
-from src.environment.tools import EnvToolCall
+from environment.shared_engine import GetObservationCallable, InternalObservation
+from reproducibility.core import ReproducibleEnvironment
+from stateful.core import StatefulEnvironment
+from environment.tools import EnvToolCall
 from examples.math.tools import SubmitAnswerTool  # Specific tool for math submissions
 
 from examples.math.engine import (

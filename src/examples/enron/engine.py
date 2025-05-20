@@ -10,12 +10,12 @@ from datasets import load_dataset
 from examples.enron.art_helpers.types_enron import Email
 from examples.enron.art_helpers.email_search_tools import search_emails as helper_search_emails, read_email as helper_read_email, SearchResult
                                                 # SQLite-backed helpers
-from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from stateful.engine import StatefulEngine, StatefulEngineSnapshot
 from examples.enron.taskset import EnronTaskInstance
 from synth_ai.zyk import LM # Import LM class
 
-from src.environment.db.sqlite import SQLiteManager
-from src.rewards.core import RewardStack, RewardComponent
+from .db.sqlite import SQLiteManager
+from environment.rewards.core import RewardStack, RewardComponent
 from examples.enron.art_helpers.local_email_db import DEFAULT_DB_PATH, generate_database
 
 # --------------------------------------------------------------------------- actions

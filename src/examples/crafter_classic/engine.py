@@ -15,14 +15,14 @@ import crafter  # type: ignore
 import collections
 from pydantic import BaseModel # Added
 
-from src.environment.shared_engine import (
+from environment.shared_engine import (
     GetObservationCallable,
     InternalObservation,
 )
-from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
-from src.tasks.core import TaskInstance
-from src.reproducibility.core import IReproducibleEngine
-from src.rewards.core import RewardStack, RewardComponent # Added
+from stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from tasks.core import TaskInstance
+from reproducibility.core import IReproducibleEngine
+from environment.rewards.core import RewardStack, RewardComponent # Added
 
 # Local helper imports (must exist relative to this file)
 from .engine_helpers.action_map import CRAFTER_ACTION_MAP  # action‑name → int

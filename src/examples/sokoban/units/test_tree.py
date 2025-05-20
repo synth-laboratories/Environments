@@ -18,11 +18,11 @@ from typing import List, Dict, Tuple
 import numpy as np
 import pytest
 
-from src.reproducibility.tree import FilesystemSnapshotStore, TrajectoryTreeStore
+from reproducibility.tree import FilesystemSnapshotStore, TrajectoryTreeStore
 from examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
 
 # from examples.sokoban.engine import SokobanEngineSnapshot  # only a type
-from src.tasks.core import Impetus, Intent
+from tasks.core import Impetus, Intent
 from examples.sokoban.environment import SokobanEnvironment
 from examples.sokoban.units.astar_common import ENGINE_ASTAR  # A* helper
 from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP  # Added for full action set

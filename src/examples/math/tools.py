@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from src.environment.tools import EnvToolCall
+from environment.tools import EnvToolCall
 
 
 @dataclass

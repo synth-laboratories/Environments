@@ -20,9 +20,9 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from src.environment.tools import EnvToolCall
-from src.environment.shared_engine import GetObservationCallable, InternalObservation
-from src.stateful.core import StatefulEnvironment
+from environment.tools import EnvToolCall
+from environment.shared_engine import GetObservationCallable, InternalObservation
+from stateful.core import StatefulEnvironment
 from examples.swe_bench.engine import SWEBenchEngine
 
 

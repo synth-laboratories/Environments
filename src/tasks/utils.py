@@ -3,7 +3,7 @@ Utility functions and generic filters for taskset creation.
 """
 from typing import Any, Collection, Optional, List, Set
 from uuid import UUID, uuid4
-from src.tasks.core import TaskInstanceMetadataFilter, TaskInstanceSet, SplitInfo, TaskInstance
+from tasks.core import TaskInstanceMetadataFilter, TaskInstanceSet, SplitInfo, TaskInstance
 
 
 def parse_or_new_uuid(raw_id: Optional[str]) -> UUID:

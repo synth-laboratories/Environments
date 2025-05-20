@@ -1,4 +1,4 @@
-from Environments.src.tasks.core import (
+from tasks.core import (
     Task,
     TaskInstance,
     TaskInstanceSet,

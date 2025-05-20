@@ -30,7 +30,7 @@ from typing import Dict, Any, List, Optional
 
 from datasets import load_dataset                         # pip install datasets
 
-from src.tasks.core import (                              # synth-ai task API
+from tasks.core import (                              # synth-ai task API
     Task,
     TaskInstance,
     TaskInstanceMetadata,

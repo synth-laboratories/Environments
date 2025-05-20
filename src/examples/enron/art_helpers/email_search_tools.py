@@ -5,7 +5,7 @@ from typing import List, Optional
 from dataclasses import dataclass
 import os
 
-from src.environment.db.sqlite import SQLiteManager
+from .db.sqlite import SQLiteManager
 from examples.enron.art_helpers.local_email_db import DEFAULT_DB_PATH, generate_database
 from examples.enron.art_helpers.types_enron import Email
 

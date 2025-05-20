@@ -7,7 +7,7 @@ import os
 from datasets import load_dataset
 from dataclasses import dataclass, asdict
 
-from src.tasks.core import (
+from tasks.core import (
     Task,
     TaskInstance,
     TaskInstanceSet,

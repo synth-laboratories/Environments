@@ -13,7 +13,7 @@ from reproducibility.core import IReproducibleEngine  # Added import
 import logging
 from gymnasium.utils import seeding
 from pydantic import BaseModel
-from rewards.core import RewardStack, RewardComponent
+from environment.rewards.core import RewardStack, RewardComponent
 from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP, SokobanEnv as GymSokobanEnv
 
 # Configure logging for debugging SokobanEngine steps
