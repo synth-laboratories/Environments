@@ -16,13 +16,15 @@ dependencies = [
     "pydantic-openapi-schema>=1.5.1",
     "pytest-asyncio>=0.24.0",
     "numpy>=2.2.3",
-    "gym-sokoban>=0.0.6",
     "setuptools>=75.8.2",
     "networkx>=3.4.2",
     "synth-ai==0.1.0.dev52",
     "synth-sdk==0.3.1.dev21",
     "crafter>=1.8.3",
-    "pufferlib>=2.0.6",
+    "fastapi>=0.115.12",
+    "gym-sokoban>=0.0.6",
+    "gymnasium>=1.1.1",
+    "uvicorn>=0.34.2",
 ]
 classifiers = []
 

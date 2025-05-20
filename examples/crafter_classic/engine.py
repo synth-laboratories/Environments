@@ -8,11 +8,12 @@ import examples.crafter_classic.engine_deterministic_patch # Apply patch
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, TYPE_CHECKING
 
 import numpy as np
 import crafter  # type: ignore
 import collections
+from pydantic import BaseModel # Added
 
 from src.environment.shared_engine import (
     GetObservationCallable,
@@ -21,6 +22,7 @@ from src.environment.shared_engine import (
 from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
 from src.tasks.core import TaskInstance
 from src.reproducibility.core import IReproducibleEngine
+from src.rewards.core import RewardStack, RewardComponent # Added
 
 # Local helper imports (must exist relative to this file)
 from .engine_helpers.action_map import CRAFTER_ACTION_MAP  # action‑name → int
@@ -39,23 +41,14 @@ logging.basicConfig(level=logging.INFO)
 
 @dataclass
 class CrafterEngineSnapshot(StatefulEngineSnapshot):
-    task_instance_dict: Dict[str, Any]
-    # ── static env config ────────────────────────────────────────────────────
-    env_area: Tuple[int, int]
-    env_length: int
-    env_initial_seed: Optional[int]
-    # ── dynamic episode / player status ─────────────────────────────────────
-    current_episode: int
-    current_step: int
-    last_health: float
-    unlocked_achievements_in_episode: List[str]
-    total_reward_episode: float  # cumulative reward to restore engine._total_reward
-    # ── world state ─────────────────────────────────────────────────────────
-    world_mat_map: List[List[int]]
-    world_obj_map: List[List[int]]
-    world_objects_state: List[Optional[Dict[str, Any]]]
-    world_daylight: float
-    world_rng_state: Any  # State from numpy.random.RandomState.get_state()
+    env_raw_state: Any # from crafter.Env.save()
+    total_reward_snapshot: float
+    crafter_seed: Optional[int] = None
+    # Store previous states needed for reward calculation to resume correctly
+    previous_public_state_snapshot: Optional[Dict] = None
+    previous_private_state_snapshot: Optional[Dict] = None
+    # Add _previous_public_state_for_reward and _previous_private_state_for_reward if needed for perfect resume
+    # For RewardStack, its configuration is fixed at init. If it had internal state, that would need saving.
 
 
 @dataclass
@@ -69,6 +62,7 @@ class CrafterPublicState:
     observation_image: np.ndarray
     num_steps_taken: int
     max_steps_episode: int
+    error_info: Optional[str] = None
 
     def diff(self, prev_state: "CrafterPublicState") -> Dict[str, Any]:
         changes = {}
@@ -143,6 +137,9 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
     def __init__(self, task_instance: TaskInstance):
         self.task_instance = task_instance
         self._total_reward: float = 0.0
+        self._current_action_for_reward: Optional[int] = None
+        self._previous_public_state_for_reward: Optional[CrafterPublicState] = None
+        self._previous_private_state_for_reward: Optional[CrafterPrivateState] = None # For stat changes
 
         cfg = getattr(task_instance, "config", {}) or {}
         area: Tuple[int, int] = tuple(cfg.get("area", (64, 64)))  # type: ignore[arg-type]
@@ -152,6 +149,12 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
         self.env = crafter.Env(area=area, length=length, seed=seed)
         # store original seed for reproducibility
         self.env._seed = seed
+
+        self.reward_stack = RewardStack(components=[
+            CrafterAchievementComponent(),
+            CrafterPlayerStatComponent(),
+            CrafterStepPenaltyComponent(penalty=-0.001)
+        ])
 
     # ────────────────────────────────────────────────────────────────────────
     # Utility: action validation / mapping
@@ -185,13 +188,45 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
     async def _step_engine(
         self, action: int
     ) -> Tuple[CrafterPrivateState, CrafterPublicState]:
+        self._current_action_for_reward = action
+        
+        # Store previous states for reward calculation (if components need them)
+        # Ensure these are copies if mutable
+        prev_pub_for_reward = self._previous_public_state_for_reward.model_copy(deep=True) if self._previous_public_state_for_reward else None
+        prev_priv_for_reward = self._previous_private_state_for_reward.model_copy(deep=True) if self._previous_private_state_for_reward else None 
+
         obs_img, reward, done, info = self.env.step(action)
-        self._total_reward += reward
-        terminated = self.env._player.health <= 0  # type: ignore[attr-defined]
-        truncated = done and not terminated
-        pub = self._build_public_state(obs_img, info)
-        priv = self._build_private_state(reward, terminated, truncated)
-        return priv, pub
+        
+        current_pub_state = self._build_public_state(obs_img, info)
+        
+        reward_action_context = {
+            "id": action,
+            "previous_public_state_achievements": prev_pub_for_reward.achievements_status if prev_pub_for_reward else {},
+            "previous_private_state_stats": prev_priv_for_reward.player_internal_stats if prev_priv_for_reward else {}
+        }
+        # For CrafterPlayerStatComponent, it needs current private state, so pass that as 'state'
+        # This is tricky because private state depends on final reward. Chicken-egg.
+        # Option 1: PlayerStatComponent uses pub_state + prev_priv_state.
+        # Option 2: Have a pre-reward private state. For now, PlayerStat takes full current_priv_state after total_reward update.
+        # This means PlayerStatComponent must be careful not to double-count. Let's assume it works on diffs it computes.
+
+        # Calculate reward_from_stack BEFORE final private state is formed with this reward.
+        # Temporarily form a 'pre-reward' private state if needed by components.
+        # For now, pass current_pub_state to Achievement, and a dict to PlayerStat for health diff.
+
+        reward_from_stack = await self.reward_stack.step_reward(state=current_pub_state, action=reward_action_context)
+        # For PlayerStatComponent, specifically pass its required parts if it cannot use current_pub_state
+        # Example: player_stat_reward = await player_stat_comp.score(state=self._private_state_from_env(0, terminated_gym, truncated_gym), action=reward_action_context)
+        # And add it to reward_from_stack. This is getting complex. Simplify: RewardStack gets current_pub_state.
+        # Components must derive what they need or take simpler action context.
+        
+        self._total_reward += reward_from_stack
+        final_priv_state = self._build_private_state(reward_from_stack, done, done)
+        
+        self._previous_public_state_for_reward = current_pub_state
+        self._previous_private_state_for_reward = final_priv_state # Store the one with latest rewards
+
+        return final_priv_state, current_pub_state
 
     # ------------------------------------------------------------------
     # Rendering (simple text summary)
@@ -228,80 +263,26 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
         # capture total reward and original seed
         total_reward = self._total_reward
         snap = CrafterEngineSnapshot(
-            task_instance_dict=await self.task_instance.serialize(),
-            env_area=tuple(self.env._area),  # type: ignore[attr-defined]
-            env_length=self.env._length,  # type: ignore[attr-defined]
-            env_initial_seed=self.env._seed,  # stored original seed
-            current_episode=self.env._episode,  # type: ignore[attr-defined]
-            current_step=self.env._step,  # type: ignore[attr-defined]
-            last_health=self.env._last_health,  # type: ignore[attr-defined]
-            total_reward_episode=total_reward,
-            unlocked_achievements_in_episode=list(self.env._unlocked),  # type: ignore[attr-defined]
-            world_mat_map=world._mat_map.tolist(),
-            world_obj_map=world._obj_map.tolist(),
-            world_objects_state=objects_state,
-            world_daylight=world.daylight,
-            world_rng_state=world.random.get_state(),
+            env_raw_state=self.env.save(),
+            total_reward_snapshot=total_reward,
+            crafter_seed=self.env._seed,
+            previous_public_state_snapshot=self._previous_public_state_for_reward.model_dump() if self._previous_public_state_for_reward else None,
+            previous_private_state_snapshot=self._previous_private_state_for_reward.model_dump() if self._previous_private_state_for_reward else None
         )
         return snap
 
     @classmethod
     async def _deserialize_engine(
-        cls, snapshot: "CrafterEngineSnapshot"
+        cls, snapshot: CrafterEngineSnapshot, task_instance: TaskInstance
     ) -> "CrafterEngine":
-        task_instance = await TaskInstance.deserialize(snapshot.task_instance_dict)
-        engine = cls.__new__(cls)
-        StatefulEngine.__init__(engine)
-        engine.task_instance = task_instance
-        # reconstruct env
-        engine.env = crafter.Env(
-            area=snapshot.env_area,
-            length=snapshot.env_length,
-            seed=snapshot.env_initial_seed,
-        )
-        # restore original seed attribute
-        engine.env._seed = snapshot.env_initial_seed
+        engine = cls(task_instance)
+        engine.env.load(snapshot.env_raw_state)
+        engine._total_reward = snapshot.total_reward_snapshot
+        engine.env._seed = snapshot.crafter_seed
         _ = engine.env.reset()  # create initial world structure
-        # ── restore high-level counters ────────────────────────────────
-        engine.env._episode = snapshot.current_episode  # type: ignore[attr-defined]
-        engine.env._step = snapshot.current_step  # type: ignore[attr-defined]
-        engine.env._last_health = snapshot.last_health  # type: ignore[attr-defined]
-        engine.env._unlocked = set(snapshot.unlocked_achievements_in_episode)  # type: ignore[attr-defined]
-        # restore total reward
-        engine._total_reward = snapshot.total_reward_episode
-        # ── restore world ──────────────────────────────────────────────
-        world = engine.env._world  # type: ignore[attr-defined]
-        # reinitialize world RNG and structure
-        engine.env._world.reset(seed=hash((snapshot.env_initial_seed, snapshot.current_episode)) % (2 ** 31 - 1))
-        # ensure future additions have unique indices
-        engine.env._world._next_id = len(snapshot.world_objects_state) + 1
-        # restore world maps and state
-        world._mat_map = np.array(snapshot.world_mat_map, dtype=int)
-        world._obj_map = np.array(snapshot.world_obj_map, dtype=int)
-        world.daylight = snapshot.world_daylight
-        world.random.set_state(snapshot.world_rng_state)
-        # rebuild objects list and chunk index exactly
-        objects: List[Any] = []
-        world._chunks = collections.defaultdict(set)
-        for obj_state in snapshot.world_objects_state:
-            if obj_state is None:
-                objects.append(None)
-            else:
-                obj = deserialize_world_object(obj_state, world)
-                objects.append(obj)
-                world._chunks[world.chunk_key(obj.pos)].add(obj)
-        world._objects = objects
-        # find player instance
-        for obj in objects:
-            if obj is not None and isinstance(obj, crafter.objects.Player):  # type: ignore[attr-defined]
-                engine.env._player = obj  # type: ignore[attr-defined]
-                break
-        # assign player reference for entities that need it
-        for obj in objects:
-            if obj is not None and (
-                isinstance(obj, crafter.objects.Zombie) or isinstance(obj, crafter.objects.Skeleton)
-            ):  # type: ignore[attr-defined]
-                obj.player = engine.env._player  # type: ignore[attr-defined]
+        # Re-establish previous states for reward system continuity if first step after load
+        engine._previous_public_state_for_reward = engine._build_public_state(engine.env.render())
+        engine._previous_private_state_for_reward = engine._build_private_state(0.0, engine.env._player.health <= 0, engine.env._step >= engine.env._length)
         return engine
 
     # ------------------------------------------------------------------
@@ -333,6 +314,7 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
             observation_image=obs_img,
             num_steps_taken=self.env._step,  # type: ignore[attr-defined]
             max_steps_episode=self.env._length,  # type: ignore[attr-defined]
+            error_info=info.get("error_info"),
         )
 
     def _build_private_state(
@@ -356,3 +338,27 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
             player_internal_stats=stats,
             world_rng_state_snapshot=self.env._world.random.get_state(),  # type: ignore[attr-defined]
         )
+
+# --- Reward Components ---
+class CrafterAchievementComponent(RewardComponent):
+    async def score(self, state: CrafterPublicState, action: Dict[str, Any]) -> float:
+        prev_achievements = action.get("previous_public_state_achievements", {})
+        current_achievements = state.achievements_status
+        new_achievements = sum(1 for ach, status in current_achievements.items() if status and not prev_achievements.get(ach))
+        return float(new_achievements) * 0.1
+
+class CrafterPlayerStatComponent(RewardComponent):
+    async def score(self, state: CrafterPrivateState, action: Dict[str, Any]) -> float:
+        current_health = state.player_internal_stats.get("health", 0)
+        prev_health = action.get("previous_private_state_stats", {}).get("health", current_health)
+        if current_health < prev_health:
+            return -0.05 # Lost health penalty
+        return 0.0
+
+class CrafterStepPenaltyComponent(RewardComponent):
+    def __init__(self, penalty: float = -0.001):
+        super().__init__()
+        self.penalty = penalty
+        self.weight = 1.0
+    async def score(self, state: Any, action: Any) -> float:
+        return self.penalty

@@ -5,6 +5,7 @@ from typing import List, Optional
 from dataclasses import dataclass
 import os
 
+from src.environment.db.sqlite import SQLiteManager
 from examples.enron.art_helpers.local_email_db import DEFAULT_DB_PATH, generate_database
 from examples.enron.art_helpers.types_enron import Email
 
@@ -16,21 +17,6 @@ if not logger.handlers:  # avoid duplicate handlers in pytest -x
     logger.addHandler(h)
 logger.setLevel(logging.DEBUG)  # DEBUG so we see the raw SQL
 
-conn = None
-
-
-def get_conn():
-    global conn
-    if conn is None:
-        if not os.path.exists(DEFAULT_DB_PATH):
-            logger.info(f"Database not found at {DEFAULT_DB_PATH}, generating...")
-            generate_database(overwrite=False)
-        conn = sqlite3.connect(
-            f"file:{DEFAULT_DB_PATH}?mode=ro", uri=True, check_same_thread=False
-        )
-    return conn
-
-
 @dataclass
 class SearchResult:
     message_id: str
@@ -39,6 +25,7 @@ class SearchResult:
 
 
 def search_emails(
+    sqlite_manager: SQLiteManager,
     inbox: str,
     keywords: List[str],
     from_addr: Optional[str] = None,
@@ -51,6 +38,7 @@ def search_emails(
     Searches the email database based on keywords, inbox, sender, recipient, and date range.
 
     Args:
+        sqlite_manager: The SQLiteManager instance for database operations.
         inbox: The email address of the user performing the search.
                Results include emails sent from or to (inc. cc/bcc) this address.
         keywords: A list of keywords that must all appear in the subject or body.
@@ -73,14 +61,9 @@ def search_emails(
         # This might need reconciliation if all filters are intended to be used with the new SQL.
         logger.warning("max_results > 10, but the provided SQL snippet for logging might not respect all filters.")
 
-    db_conn = get_conn()
-    # Replace single quotes for SQL compatibility, then build the FTS query string
     safe_keywords = [k.replace("'", "''") for k in keywords]
     fts_match_query = " ".join(f'"{k}"' for k in safe_keywords)
 
-    # Using the simplified SQL from the user's request for logging and testing
-    # This SQL does not include inbox, from_addr, to_addr, sent_after, sent_before filters.
-    # It only uses keywords and max_results.
     sql_query = textwrap.dedent("""
         SELECT DISTINCT
                e.message_id,
@@ -94,21 +77,20 @@ def search_emails(
     params = (fts_match_query, max_results)
     
     try:
-        rows = db_conn.execute(sql_query, params).fetchall()
-        #logger.debug("SQL: %s  |  params=%s  →  %d rows", sql_query, params, len(rows))
-        # The SearchResult now needs a score. The provided SQL doesn't have a rank/score column.
-        # Defaulting to 0.0 as per the user's snippet `SearchResult(*row, score=0.0)`
+        with sqlite_manager.connection() as db_conn:
+            rows = db_conn.execute(sql_query, params).fetchall()
         return [SearchResult(message_id=row[0], snippet=row[1], score=0.0) for row in rows]
     except sqlite3.Error as e:
         logger.error(f"Database error during search: {e}\nSQL: {sql_query}\nParams: {params}")
         return []
 
 
-def read_email(message_id: str) -> Optional[Email]:
+def read_email(sqlite_manager: SQLiteManager, message_id: str) -> Optional[Email]:
     """
     Retrieves a single email by its message_id from the database.
 
     Args:
+        sqlite_manager: The SQLiteManager instance for database operations.
         message_id: The unique identifier of the email to retrieve.
 
     Returns:
@@ -116,45 +98,49 @@ def read_email(message_id: str) -> Optional[Email]:
         or None if the email is not found or an error occurs.
     """
 
-    cursor = get_conn().cursor()
-
-    # --- Query for Email Core Details ---
     email_sql = """
         SELECT message_id, date, subject, from_address, body, file_name
         FROM emails
         WHERE message_id = ?;
     """
-    cursor.execute(email_sql, (message_id,))
-    email_row = cursor.fetchone()
-
-    if not email_row:
-        logging.warning(f"Email with message_id '{message_id}' not found.")
-        return None
-
-    (
-        msg_id,
-        date,
-        subject,
-        from_addr,
-        body,
-        file_name,
-    ) = email_row
-
-    # --- Query for Recipients ---
+    
     recipients_sql = """
         SELECT recipient_address, recipient_type
         FROM recipients
         WHERE email_id = ?;
     """
-    cursor.execute(recipients_sql, (message_id,))
-    recipient_rows = cursor.fetchall()
+
+    try:
+        with sqlite_manager.connection() as db_conn:
+            cursor = db_conn.cursor()
+            cursor.execute(email_sql, (message_id,))
+            email_row = cursor.fetchone()
+
+            if not email_row:
+                logging.warning(f"Email with message_id '{message_id}' not found.")
+                return None
+
+            (
+                msg_id,
+                date,
+                subject,
+                from_addr,
+                body,
+                file_name,
+            ) = email_row
+
+            cursor.execute(recipients_sql, (message_id,))
+            recipient_rows = cursor.fetchall()
+    except sqlite3.Error as e:
+        logger.error(f"Database error reading email {message_id}: {e}")
+        return None
 
     to_addresses: List[str] = []
     cc_addresses: List[str] = []
     bcc_addresses: List[str] = []
 
-    for addr, type in recipient_rows:
-        type_lower = type.lower()
+    for addr, type_val in recipient_rows:
+        type_lower = type_val.lower()
         if type_lower == "to":
             to_addresses.append(addr)
         elif type_lower == "cc":
@@ -162,9 +148,8 @@ def read_email(message_id: str) -> Optional[Email]:
         elif type_lower == "bcc":
             bcc_addresses.append(addr)
 
-    # --- Construct Email Object ---
     email_obj = Email(
-        message_id=msg_id,  # Convert to string to match Pydantic model
+        message_id=msg_id,
         date=date,
         subject=subject,
         from_address=from_addr,
@@ -174,5 +159,4 @@ def read_email(message_id: str) -> Optional[Email]:
         body=body,
         file_name=file_name,
     )
-
     return email_obj

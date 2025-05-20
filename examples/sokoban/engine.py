@@ -4,12 +4,15 @@ from src.environment.shared_engine import GetObservationCallable, InternalObserv
 from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
 from src.tasks.core import TaskInstance
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from examples.sokoban.taskset import (
     SokobanTaskInstance,
 )  # Assuming this is where SokobanTaskInstance is defined
 from src.reproducibility.core import IReproducibleEngine  # Added import
 import logging
+from gymnasium.utils import seeding
+from pydantic import BaseModel
+from src.rewards.core import RewardStack, RewardComponent
 
 # Configure logging for debugging SokobanEngine steps
 logger = logging.getLogger(__name__)
@@ -49,6 +52,7 @@ class SokobanPublicState:
     max_steps: int
     last_action_name: str
     num_boxes: int
+    error_info: Optional[str] = None
 
     def diff(self, prev_state: "SokobanPublicState") -> Dict:
         pass
@@ -91,16 +95,16 @@ class SynthSokobanObservationCallable(GetObservationCallable):
         board_txt = _grid_to_text(pub.room_state)
         return {
             "room_text": board_txt,
-            "player_position": pub.player_position,
-            "boxes_on_target": pub.boxes_on_target,
-            "steps_taken": pub.num_steps,
-            "max_steps": pub.max_steps,
+            "player_position": tuple(map(int, pub.player_position)),
+            "boxes_on_target": int(pub.boxes_on_target),
+            "steps_taken": int(pub.num_steps),
+            "max_steps": int(pub.max_steps),
             "last_action": pub.last_action_name,
-            #
-            "reward_last": priv.reward_last,
-            "total_reward": priv.total_reward,
-            "terminated": priv.terminated,
-            "truncated": priv.truncated,
+            "reward_last": float(priv.reward_last),
+            "total_reward": float(priv.total_reward),
+            "terminated": bool(priv.terminated),
+            "truncated": bool(priv.truncated),
+            "num_boxes": int(pub.num_boxes)
         }
 
 
@@ -120,12 +124,12 @@ class SynthSokobanCheckpointObservationCallable(GetObservationCallable):
         board_txt = _grid_to_text(pub.room_state)
         return {
             "room_text_final": board_txt,
-            "boxes_on_target_final": pub.boxes_on_target,
-            "steps_taken_final": pub.num_steps,
-            #
-            "total_reward": priv.total_reward,
-            "terminated": priv.terminated,
-            "truncated": priv.truncated,
+            "boxes_on_target_final": int(pub.boxes_on_target),
+            "steps_taken_final": int(pub.num_steps),
+            "total_reward": float(priv.total_reward),
+            "terminated": bool(priv.terminated),
+            "truncated": bool(priv.truncated),
+            "num_boxes": int(pub.num_boxes)
         }
 
 
@@ -200,6 +204,22 @@ def package_sokoban_env_from_engine_snapshot(
     return env
 
 
+# --- Reward Components ---
+class SokobanGoalAchievedComponent(RewardComponent):
+    async def score(self, state: "SokobanPublicState", action: Any) -> float: 
+        if state.boxes_on_target == state.num_boxes:
+            return 1.0 
+        return 0.0
+
+class SokobanStepPenaltyComponent(RewardComponent):
+    def __init__(self, penalty: float = -0.01):
+        super().__init__()
+        self.penalty = penalty
+        self.weight = 1.0
+    async def score(self, state: Any, action: Any) -> float:
+        return self.penalty
+
+
 class SokobanEngine(StatefulEngine, IReproducibleEngine):
     task_instance: TaskInstance
     package_sokoban_env: PackageSokobanEnv
@@ -209,6 +229,11 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
     def __init__(self, task_instance: TaskInstance):
         self.task_instance = task_instance
         self._total_reward = 0.0  # Initialize total_reward
+        self._current_action_for_reward: Optional[int] = None
+        self.reward_stack = RewardStack(components=[
+            SokobanGoalAchievedComponent(),
+            SokobanStepPenaltyComponent(penalty=-0.01)
+        ])
 
         init_snap: dict | None = getattr(
             self.task_instance, "initial_engine_snapshot", None
@@ -297,76 +322,54 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
     async def _step_engine(
         self, action: int
     ) -> Tuple[SokobanPrivateState, SokobanPublicState]:
-        old_room_state = self.package_sokoban_env.room_state.copy()
-        old_player_position = tuple(self.package_sokoban_env.player_position)
-        # Log action and state before stepping
-        # logger.debug(f"STEP ENGINE: action={action}, name={ACTION_LOOKUP[action]}")
-        # logger.debug("State before step:\n" + _grid_to_text(self.package_sokoban_env.room_state))
-        # Validate action
-        # if action not in self.package_sokoban_env.action_space:
-        #     raise ValueError(f"Illegal action {action}")
-        # # Perform action
-        # --- run package env ---------------------------------------------------
-        obs, r, terminated_gym, info = self.package_sokoban_env.step(action)
+        self._current_action_for_reward = action # Set context for reward
+        
+        # --- Run underlying package environment step --- 
+        # The raw reward from package_sokoban_env.step() will be ignored, 
+        # as we are now using our RewardStack for a more structured reward calculation.
+        obs_raw, _, terminated_gym, info = self.package_sokoban_env.step(action)
 
-        # --- recompute live counters ------------------------------------------
-        live_boxes_on_target = _count_boxes_on_target(
-            self.package_sokoban_env.room_state
-        )
-        self.package_sokoban_env.boxes_on_target = live_boxes_on_target
-
-        # --- robust termination & reward --------------------------------------
-        solved = live_boxes_on_target == self.package_sokoban_env.num_boxes
-        terminated = solved or info.get("maxsteps_used", False)
-
-        # gym_sokoban sometimes reports solved spuriously – correct it
-        if terminated_gym and not solved:
-            terminated = False  # still playing
-            r = -0.1  # default step penalty
-
-        self._total_reward += r
-
-        # --- Determine if the action was ineffective ---
-        action_name_to_report = info["action.name"]
-        is_no_op_action = action == 0  # Assuming 0 is "no operation"
-
-        current_room_state = self.package_sokoban_env.room_state
-        current_player_position = tuple(self.package_sokoban_env.player_position)
-
-        state_changed = (
-            not np.array_equal(old_room_state, current_room_state)
-            or old_player_position != current_player_position
-        )
-
-        if not is_no_op_action and not state_changed:
-            # Use the global ACTION_LOOKUP imported from gym_sokoban.envs.sokoban_env
-            action_str = ACTION_LOOKUP.get(action, "UnknownAction")
-            action_name_to_report = f"INVALID_ACTION_NO_CHANGE: {action_str}"
-            # Consider if reward `r` should be further penalized here, though gym_sokoban usually handles step penalties.
-
-        # Log results and state after stepping
-        # logger.debug(f"Action result: reward={r}, terminated={terminated}, info={info}")
-        # logger.debug("State after step:\n" + _grid_to_text(self.package_sokoban_env.room_state))
-        priv = SokobanPrivateState(
-            reward_last=r,
-            total_reward=self._total_reward,
-            terminated=terminated,
-            truncated=info.get("maxsteps_used", False),
-            rng_state=self.package_sokoban_env.np_random.bit_generator.state,
-        )
-        pub = SokobanPublicState(
+        # --- Construct current public state (needed for RewardStack and for observation) --- 
+        current_pub_state = SokobanPublicState(
             dim_room=self.package_sokoban_env.dim_room,
             room_fixed=self.package_sokoban_env.room_fixed.copy(),
             room_state=self.package_sokoban_env.room_state.copy(),
             player_position=tuple(self.package_sokoban_env.player_position),
-            boxes_on_target=live_boxes_on_target,
+            boxes_on_target=self.package_sokoban_env.boxes_on_target,
             num_steps=self.package_sokoban_env.num_env_steps,
             max_steps=self.package_sokoban_env.max_steps,
-            last_action_name=action_name_to_report,
+            last_action_name=ACTION_LOOKUP.get(action, "Unknown"),
             num_boxes=self.package_sokoban_env.num_boxes,
         )
+        
+        # --- Calculate reward using RewardStack --- 
+        # The 'state' for reward components is current_pub_state.
+        # The 'action' for reward components is the raw agent action.
+        reward_from_stack = await self.reward_stack.step_reward(state=current_pub_state, action=self._current_action_for_reward)
+        self._current_action_for_reward = None # Reset context
 
-        return priv, pub
+        self._total_reward += reward_from_stack 
+        # Update reward_last on the package_sokoban_env if it's used by its internal logic or for direct inspection.
+        # However, the authoritative reward for our framework is reward_from_stack.
+        self.package_sokoban_env.reward_last = reward_from_stack 
+
+        # --- Determine terminated and truncated status based on gym env and game logic --- 
+        solved = self.package_sokoban_env.boxes_on_target == self.package_sokoban_env.num_boxes
+        terminated = terminated_gym or solved # terminated_gym from underlying env, or solved state
+        # If underlying env says terminated due to max_steps, it is truncation for us.
+        # If solved, it's termination. Otherwise, depends on max_steps.
+        truncated = (self.package_sokoban_env.num_env_steps >= self.package_sokoban_env.max_steps) and not solved
+        if solved:
+            terminated = True # Ensure solved always terminates
+            truncated = False # Cannot be truncated if solved
+
+        priv = SokobanPrivateState(
+            reward_last=reward_from_stack,
+            total_reward=self._total_reward,
+            terminated=terminated,
+            truncated=truncated,
+        )
+        return priv, current_pub_state
 
     async def _reset_engine(
         self, *, seed: int | None = None
@@ -379,6 +382,7 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
         3.  Zero-out cumulative reward and emit fresh state objects.
         """
         self._total_reward = 0.0
+        self._current_action_for_reward = None
 
         init_snap: dict | None = getattr(self.task_instance, "initial_engine_snapshot")
 
@@ -417,7 +421,7 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
             boxes_on_target=self.package_sokoban_env.boxes_on_target,
             num_steps=self.package_sokoban_env.num_env_steps,
             max_steps=self.package_sokoban_env.max_steps,
-            last_action_name="reset",
+            last_action_name="Initial",
             num_boxes=self.package_sokoban_env.num_boxes,
         )
         return priv, pub
@@ -484,6 +488,29 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
             "total_reward", 0.0
         )
         return engine
+
+    def get_current_states_for_observation(self) -> Tuple[SokobanPrivateState, SokobanPublicState]:
+        # Helper to get current state without advancing engine, useful for error in Environment.step
+        terminated = bool(self.package_sokoban_env.boxes_on_target == self.package_sokoban_env.num_boxes)
+        truncated = bool(self.package_sokoban_env.num_env_steps >= self.package_sokoban_env.max_steps)
+        priv = SokobanPrivateState(
+            reward_last=self.package_sokoban_env.reward_last, # Last known reward
+            total_reward=self._total_reward,
+            terminated=terminated,
+            truncated=truncated,
+        )
+        pub = SokobanPublicState(
+            dim_room=self.package_sokoban_env.dim_room,
+            room_fixed=self.package_sokoban_env.room_fixed.copy(),
+            room_state=self.package_sokoban_env.room_state.copy(),
+            player_position=tuple(self.package_sokoban_env.player_position),
+            boxes_on_target=self.package_sokoban_env.boxes_on_target,
+            num_steps=self.package_sokoban_env.num_env_steps,
+            max_steps=self.package_sokoban_env.max_steps,
+            last_action_name=ACTION_LOOKUP.get(getattr(self.package_sokoban_env, 'last_action', -1), "Initial"),
+            num_boxes=self.package_sokoban_env.num_boxes,
+        )
+        return priv, pub
 
 
 if __name__ == "__main__":

@@ -20,9 +20,9 @@ Note - this repo is under extremely active development. Hic sunt dracones, if no
     - Checkout test_synth_react.py for a hello world example!
 [] Hendryks Math []
 [] Crafter-Classic (maturing)
-[] SWE-Bench (active dev)
 [] EnronBench (active dev)
-[] NMMO (active dev)
+[] SWE-Bench (active dev - do not attempt)
+[] NMMO (active dev - do not attempt)
 
 ...
 
