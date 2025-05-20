@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from uuid import uuid4
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from types import SimpleNamespace
 
 from service.registry import get_environment_cls, list_supported_env_types
@@ -12,12 +12,18 @@ api_router = APIRouter()
 # In-memory store of live environment instances
 instances: Dict[str, StatefulEnvironment] = {}
 
+
 @api_router.get("/health")
 async def get_health():
     return {"status": "ok", "supported_environments": list_supported_env_types()}
 
+
 @api_router.post("/{env_type}/create")
-async def create_env(env_type: str, config: Dict[str, Any] = None, initial_state: Dict[str, Any] = None):
+async def create_env(
+    env_type: str,
+    config: Optional[Dict[str, Any]] = None,
+    initial_state: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
     cls = get_environment_cls(env_type)
     # Create a minimal task object carrying initial_engine_snapshot for snapshot-based environments
     task = SimpleNamespace(initial_engine_snapshot=initial_state)
@@ -26,8 +32,11 @@ async def create_env(env_type: str, config: Dict[str, Any] = None, initial_state
     instances[instance_id] = env
     return {"instance_id": instance_id}
 
+
 @api_router.post("/{env_type}/{instance_id}/reset")
-async def reset_env(env_type: str, instance_id: str, seed: int = None):
+async def reset_env(
+    env_type: str, instance_id: str, seed: Optional[int] = None
+) -> Dict[str, Any]:
     env = instances.get(instance_id)
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
@@ -35,8 +44,9 @@ async def reset_env(env_type: str, instance_id: str, seed: int = None):
     obs = await env.initialize()
     return {"private": obs, "public": obs}
 
+
 @api_router.post("/{env_type}/{instance_id}/step")
-async def step_env(env_type: str, instance_id: str, calls: List[Any]):
+async def step_env(env_type: str, instance_id: str, calls: List[Any]) -> Dict[str, Any]:
     env = instances.get(instance_id)
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
@@ -44,16 +54,18 @@ async def step_env(env_type: str, instance_id: str, calls: List[Any]):
     obs = await env.step(calls)
     return {"private": obs, "public": obs}
 
+
 @api_router.post("/{env_type}/{instance_id}/terminate")
-async def terminate_env(env_type: str, instance_id: str):
+async def terminate_env(env_type: str, instance_id: str) -> Any:
     env = instances.pop(instance_id, None)
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
     obs = await env.terminate()
     return obs
 
+
 @api_router.get("/{env_type}/{instance_id}/checkpoint")
-async def checkpoint_env(env_type: str, instance_id: str):
+async def checkpoint_env(env_type: str, instance_id: str) -> Dict[str, Any]:
     env = instances.get(instance_id)
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
