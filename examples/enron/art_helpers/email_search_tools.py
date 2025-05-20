@@ -129,7 +129,7 @@ def read_email(sqlite_manager: SQLiteManager, message_id: str) -> Optional[Email
                 file_name,
             ) = email_row
 
-            cursor.execute(recipients_sql, (message_id,))
+            cursor.execute(recipients_sql, (email_id,))
             recipient_rows = cursor.fetchall()
     except sqlite3.Error as e:
         logger.error(f"Database error reading email {message_id}: {e}")
