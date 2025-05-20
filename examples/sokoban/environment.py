@@ -1,17 +1,53 @@
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Union
+from pydantic import BaseModel
+import dataclasses
+
 from examples.sokoban.engine import (
     SokobanEngine,
     SynthSokobanObservationCallable,
     SokobanPrivateState,
     SokobanPublicState,
     SynthSokobanCheckpointObservationCallable,
+    SokobanEngineSnapshot
 )
 from src.environment.shared_engine import GetObservationCallable, InternalObservation
 from src.reproducibility.core import ReproducibleEnvironment
 from src.stateful.core import StatefulEnvironment
 from src.tasks.core import TaskInstance
-from src.environment.tools import EnvToolCall
+from src.environment.tools.base import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
 
+# --- Tool Definition ---
+class SokobanActionInput(BaseModel):
+    action: int 
+
+class SokobanInteractTool(AbstractTool):
+    name = "interact"
+    description = "Performs an action (e.g., move) in the Sokoban environment."
+    call_schema = SokobanActionInput
+    result_schema = ToolResult 
+
+    def __init__(self, engine: SokobanEngine):
+        self.engine = engine
+
+    async def __call__(self, call: EnvToolCall) -> ToolResult:
+        try:
+            validated_args = self.call_schema(**call.args)
+            priv_state, pub_state = await self.engine._step_engine(validated_args.action)
+            return ToolResult(
+                ok=True,
+                payload={
+                    "public": dataclasses.asdict(pub_state),
+                    "private": dataclasses.asdict(priv_state),
+                }
+            )
+        except Exception as e:
+            # Add current public state to payload for context in case of error
+            _, pub_state_on_error = self.engine.get_current_states_for_observation()
+            return ToolResult(
+                ok=False,
+                error=str(e),
+                payload={"public": dataclasses.asdict(pub_state_on_error)},
+            )
 
 class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEngine]):
     def __init__(
@@ -22,90 +58,114 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
     ):
         self.name = "Sokoban"
         self.task_instance = task_instance
-        self.custom_step_observation_callable = custom_step_obs
-        self.custom_checkpoint_observation_callable = custom_ckpt_obs
+        # Default to SynthSokobanObservationCallable if none provided
+        self.custom_step_observation_callable = custom_step_obs or SynthSokobanObservationCallable()
+        self.custom_checkpoint_observation_callable = custom_ckpt_obs or SynthSokobanCheckpointObservationCallable()
         self.engine: SokobanEngine = SokobanEngine(task_instance)
+
+        self._interact_tool = SokobanInteractTool(self.engine)
+        if self._interact_tool.name not in TOOL_REGISTRY:
+            register_tool(self._interact_tool)
+        # elif getattr(TOOL_REGISTRY[self._interact_tool.name], 'engine', None) is not self.engine:
+            # register_tool(self._interact_tool) # More robust check if tool has engine attr
 
     async def initialize(self) -> InternalObservation:
         priv, pub = await self.engine._reset_engine()
-        return await self._to_observation(
-            priv, pub, self.custom_step_observation_callable
-        )
+        return await self._to_observation(priv, pub, self.custom_step_observation_callable)
 
     async def terminate(self) -> InternalObservation:
-        priv, pub = await self.engine._serialize_engine(), None  # placeholder
+        priv, pub = self.engine.get_current_states_for_observation()
+        priv.terminated = True # Mark as terminated
         obs_dict = {"terminated": True, "message": "Environment terminated."}
-        return obs_dict  # type: ignore[return-value]
+        # Use _to_observation to format, including final state
+        return await self._to_observation(priv, pub, self.custom_step_observation_callable, extra_obs=obs_dict)
 
-    def validate_tool_calls(self, tool_calls: List[List[EnvToolCall]]) -> None:
-        if not tool_calls or not isinstance(tool_calls[0][0], EnvToolCall):
-            raise ValueError("tool_calls must be a nested list of EnvToolCall objects")
+    def validate_tool_calls(self, tool_calls: Union[EnvToolCall, List[Dict[str, Any]], List[List[Dict[str, Any]]], Dict[str, Any]]) -> EnvToolCall:
+        # Normalize and validate to a single EnvToolCall
+        raw_call_data: Dict[str, Any]
+        if isinstance(tool_calls, list):
+            if not tool_calls: raise ValueError("Received empty list of tool calls.")
+            first_item = tool_calls[0]
+            if isinstance(first_item, list):
+                if not first_item: raise ValueError("Received empty inner list of tool calls.")
+                raw_call_data = first_item[0]
+            elif isinstance(first_item, dict):
+                raw_call_data = first_item
+            elif isinstance(first_item, EnvToolCall): # Already an EnvToolCall instance
+                agent_call = first_item # Assuming direct single call if already instance
+                if agent_call.tool != "interact":
+                     raise ValueError(f"Unknown tool: {agent_call.tool}. Expected 'interact'.")
+                return agent_call
+            else:
+                raise TypeError(f"Unexpected type in tool_calls list: {type(first_item)}")
+        elif isinstance(tool_calls, dict): # Single call passed as dict
+            raw_call_data = tool_calls
+        elif isinstance(tool_calls, EnvToolCall): # Single call already an instance
+            if tool_calls.tool != "interact":
+                 raise ValueError(f"Unknown tool: {tool_calls.tool}. Expected 'interact'.")
+            return tool_calls
+        else:
+            raise TypeError(f"Unexpected type for tool_calls: {type(tool_calls)}")
 
-    async def step(self, tool_calls: List[List[EnvToolCall]]) -> InternalObservation:
-        self.validate_tool_calls(tool_calls)
-        # assume first inner list contains one call with attribute `action`
-        action: int = tool_calls[0][0].action  # type: ignore[attr-defined]
-        priv, pub = await self.engine._step_engine(action)
-        return await self._to_observation(
-            priv, pub, self.custom_step_observation_callable
-        )
+        if not isinstance(raw_call_data, dict):
+             raise TypeError(f"Processed call data is not a dict: {type(raw_call_data)}")
+
+        # Convert dict to EnvToolCall instance
+        tool_name = raw_call_data.get("tool")
+        tool_args = raw_call_data.get("args", {})
+        if tool_name != "interact":
+            raise ValueError(f"Unknown tool: {tool_name}. Expected 'interact'.")
+        
+        agent_call = EnvToolCall(tool=tool_name, args=tool_args)
+        return agent_call
+
+    async def step(self, tool_calls: Union[EnvToolCall, List[Dict[str, Any]], List[List[Dict[str, Any]]], Dict[str, Any]]) -> InternalObservation:
+        agent_call = self.validate_tool_calls(tool_calls)
+        tool_result: ToolResult = await self._interact_tool(agent_call)
+
+        payload_dict = tool_result.payload
+        if not isinstance(payload_dict, dict):
+            # Fallback if payload isn't as expected (e.g. error during tool execution)
+            priv_state, pub_state = self.engine.get_current_states_for_observation()
+            if tool_result.error and hasattr(pub_state, 'error_info'): 
+                pub_state.error_info = tool_result.error
+        else:
+            priv_state = SokobanPrivateState(**payload_dict.get("private", {}))
+            pub_state = SokobanPublicState(**payload_dict.get("public", {}))
+            if tool_result.error and hasattr(pub_state, 'error_info'):
+                pub_state.error_info = tool_result.error
+        
+        return await self._to_observation(priv_state, pub_state, self.custom_step_observation_callable)
 
     async def checkpoint(self) -> InternalObservation:
-        # Construct public state from the engine's wrapped env
-        pub_state = SokobanPublicState(
-            dim_room=self.engine.package_sokoban_env.dim_room,
-            room_fixed=self.engine.package_sokoban_env.room_fixed.copy(),
-            room_state=self.engine.package_sokoban_env.room_state.copy(),
-            player_position=tuple(self.engine.package_sokoban_env.player_position),
-            boxes_on_target=self.engine.package_sokoban_env.boxes_on_target,
-            num_steps=self.engine.package_sokoban_env.num_env_steps,
-            max_steps=self.engine.package_sokoban_env.max_steps,
-            last_action_name="",  # not tracked for checkpoint
-            num_boxes=self.engine.package_sokoban_env.num_boxes,
-        )
-
-        # Construct private state
-        # Determine terminated and truncated status from the engine's package_sokoban_env
-        terminated = bool(
-            self.engine.package_sokoban_env.boxes_on_target
-            == self.engine.package_sokoban_env.num_boxes
-        )
-        truncated = bool(
-            self.engine.package_sokoban_env.num_env_steps
-            >= self.engine.package_sokoban_env.max_steps
-        )
-        # Reward_last for a checkpoint could be considered 0 or the last step's reward.
-        # For a final summary, total_reward is key. Let's assume reward_last is not critical for checkpoint.
-        priv_state = SokobanPrivateState(
-            reward_last=self.engine.package_sokoban_env.reward_last,  # Use last actual reward
-            total_reward=self.engine._total_reward,  # type: ignore[attr-defined]
-            terminated=terminated,
-            truncated=truncated,
-        )
-
-        # Use SynthSokobanCheckpointObservationCallable by default
-        obs_cb = (
-            self.custom_checkpoint_observation_callable
-            or SynthSokobanCheckpointObservationCallable()  # Changed default
-        )
-        return await obs_cb.get_observation(pub_state, priv_state)
+        engine_snapshot: SokobanEngineSnapshot = await self.engine._serialize_engine()
+        # For checkpoint, we might want to convey the snapshot data differently.
+        # The existing _to_observation expects live priv/pub states.
+        # For now, using current live states for observation, plus snapshot. 
+        priv, pub = self.engine.get_current_states_for_observation()
+        obs_data = await self._to_observation(priv, pub, self.custom_checkpoint_observation_callable)
+        if isinstance(obs_data, dict):
+            obs_data["engine_snapshot_data"] = engine_snapshot.model_dump() # Add snapshot if obs is dict
+        return obs_data
 
     async def _to_observation(
-        self,
-        priv: SokobanPrivateState,
-        pub: SokobanPublicState,
+        self, priv: SokobanPrivateState, pub: SokobanPublicState,
         obs_cb: Optional[GetObservationCallable],
+        extra_obs: Optional[Dict[str, Any]] = None # For adding things like termination messages
     ) -> InternalObservation:
-        return await (obs_cb or SynthSokobanObservationCallable()).get_observation(
-            pub, priv
-        )
+        # Ensure obs_cb is not None; use a default if necessary (though __init__ sets one)
+        active_obs_cb = obs_cb or SynthSokobanObservationCallable()
+        observation = await active_obs_cb.get_observation(pub, priv)
+        if extra_obs and isinstance(observation, dict):
+            observation.update(extra_obs)
+        return observation
 
-    async def _serialize_engine(self) -> Any:
+    async def _serialize_engine(self) -> SokobanEngineSnapshot: # Changed type hint
         return await self.engine._serialize_engine()
 
     @classmethod
-    async def _deserialize_engine(cls, snapshot: Any) -> "SokobanEnvironment":
-        eng = await SokobanEngine._deserialize_engine(snapshot)
-        env = cls(eng.task_instance)
+    async def _deserialize_engine(cls, snapshot: SokobanEngineSnapshot, task_instance: TaskInstance) -> "SokobanEnvironment": # Changed type hint
+        eng = await SokobanEngine._deserialize_engine(snapshot, task_instance)
+        env = cls(task_instance) # Uses task_instance from deserialized engine
         env.engine = eng
         return env

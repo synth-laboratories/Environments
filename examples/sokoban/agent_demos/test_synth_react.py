@@ -164,6 +164,7 @@ class ReActAgent:
             "Review the history of observations, thoughts, and actions. "
             "Based on this history, particularly the last observation, decide on the best next action. "
             "You MUST call one of the two available tools: `sokoban_interact` or `terminate`.\n\n"
+            "Please use the tools available to you. Do not attempt to include a tool call in your reasoning"
         )
 
         response_obj = await self.llm.respond_async(
