@@ -24,7 +24,7 @@ Note - this repo is under extremely active development. Hic sunt dracones, if no
 [] SWE-Bench (active dev - do not attempt)
 [] NMMO (active dev - do not attempt)
 [] Red (active dev)
-[] Verilog (active dev - do not attempt)
+[] Verilog (maturing)
 
 ...
 
@@ -34,3 +34,4 @@ To use the Astral suite of devtools:
 package management: uv sync, uv add, uv remove
 linting: ruff format .
 type(hint) checking: uvx ty check
+

@@ -11,8 +11,8 @@ import examples.crafter_classic.environment as cc
 register_environment("CrafterClassic", cc.CrafterClassicEnvironment)
 import examples.math.environment as me
 register_environment("HendryksMath", me.HendryksMathEnv)
-import examples.swe_bench.environment as sb
-register_environment("SWE-bench-Env", sb.SweBenchEnvironment)
+import examples.verilog.environment as ve
+register_environment("Verilog", ve.VerilogEnvironment)
 
 app = FastAPI(title="Environment Service")
 

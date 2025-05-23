@@ -2,7 +2,7 @@ from typing import List, Optional, Any, Dict, Union
 from pydantic import BaseModel
 import dataclasses
 
-from examples.verilog.engine import (
+from src.examples.verilog.engine import (
     VerilogEngine,
     VerilogPrivateState,
     VerilogPublicState,
@@ -114,12 +114,26 @@ class VerilogObservationCallable(GetObservationCallable):
             files_summary += f": {', '.join(pub.files.keys())}"
 
         compile_status = ""
-        if pub.last_compile_output:
-            compile_status = f"\nLast compile: {'Success' if 'error' not in pub.last_compile_output.lower() else 'Failed'}"
+        if pub.last_compile_output is not None:
+            # Check for common error indicators in compile output
+            output_lower = pub.last_compile_output.lower()
+            is_success = not any(indicator in output_lower for indicator in ['error', 'failed', 'syntax'])
+            if is_success:
+                compile_status = "Last compile: Success"
+            else:
+                # Include the actual error message to help the agent debug
+                compile_status = f"Last compile: Failed\n{pub.last_compile_output}"
 
         simulate_status = ""
-        if pub.last_simulate_output:
-            simulate_status = f"\nLast simulation: {'Passed' if 'ALL_TESTS_PASSED' in pub.last_simulate_output else 'Failed'}"
+        if pub.last_simulate_output is not None:
+            # Use same success detection logic as in engine
+            stdout = pub.last_simulate_output
+            passed = (
+                "ALL_TESTS_PASSED" in stdout or
+                ("Mismatches: 0 " in stdout and "samples" in stdout) or
+                ("no mismatches" in stdout.lower() and "errors" not in stdout.lower())
+            )
+            simulate_status = f"Last simulation: {'Passed' if passed else 'Failed'}"
 
         return {
             "files": pub.files,
@@ -254,9 +268,12 @@ class VerilogEnvironment(StatefulEnvironment):
         tool_result: ToolResult = await tool_instance(agent_call)
 
         # Update engine state with tool result
-        action_result = tool_result.payload if tool_result.ok and tool_result.payload else {}
-        if not tool_result.ok:
+        if tool_result.payload:
+            action_result = tool_result.payload
+        elif not tool_result.ok:
             action_result = {"ok": False, "error": tool_result.error, "type": agent_call.tool}
+        else:
+            action_result = {}
 
         priv_state, pub_state = await self.engine._step_engine(action_result)
         

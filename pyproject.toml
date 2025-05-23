@@ -25,6 +25,7 @@ dependencies = [
     "ruff>=0.11.10",
     "pyboy>=2.6.0",
     "setuptools>=80.8.0",
+    "psutil>=7.0.0",
 ]
 classifiers = []
 
