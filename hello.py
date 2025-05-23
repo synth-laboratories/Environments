@@ -1,5 +1,5 @@
 def main():
-    print("Hello from environments!")
+    print("Hello from src.environments!")
 
 
 if __name__ == "__main__":

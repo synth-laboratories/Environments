@@ -4,8 +4,8 @@ from typing import Dict, Any, List, Optional
 from types import SimpleNamespace
 
 from service.registry import get_environment_cls, list_supported_env_types
-from tasks.core import TaskInstance
-from stateful.core import StatefulEnvironment
+from src.tasks.core import TaskInstance
+from src.stateful.core import StatefulEnvironment
 
 api_router = APIRouter()
 

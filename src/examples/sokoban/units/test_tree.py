@@ -18,11 +18,11 @@ from typing import List, Dict, Tuple
 import numpy as np
 import pytest
 
-from reproducibility.tree import FilesystemSnapshotStore, TrajectoryTreeStore
+from src.reproducibility.tree import FilesystemSnapshotStore, TrajectoryTreeStore
 from examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
 
 # from examples.sokoban.engine import SokobanEngineSnapshot  # only a type
-from tasks.core import Impetus, Intent
+from src.tasks.core import Impetus, Intent
 from examples.sokoban.environment import SokobanEnvironment
 from examples.sokoban.units.astar_common import ENGINE_ASTAR  # A* helper
 from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP  # Added for full action set
@@ -66,6 +66,52 @@ def solved(env: SokobanEnvironment) -> bool:
     )
 
 
+async def debug_basic_actions():
+    """Debug function to test basic action execution"""
+    inst = SokobanTaskInstance(
+        id="debug",
+        impetus=Impetus(instructions="solve"),
+        intent=Intent(rubric={}, gold_trajectories=None, gold_state_diff={}),
+        metadata=SokobanTaskInstanceMetadata(
+            difficulty="easy",
+            num_boxes=1,
+            dim_room=(4, 4),
+            max_steps=10,
+            shortest_path_length=-1,
+            seed=0,
+            generation_params="debug",
+        ),
+        is_reproducible=True,
+        initial_engine_snapshot=SNAP,
+    )
+    env = SokobanEnvironment(inst)
+    await env.initialize()
+    
+    LOG.debug("Initial state:")
+    LOG.debug(f"player @ {env.engine.package_sokoban_env.player_position}")
+    LOG.debug(f"room_state:\n{env.engine.package_sokoban_env.room_state}")
+    LOG.debug(f"room_fixed:\n{env.engine.package_sokoban_env.room_fixed}")
+    LOG.debug(f"boxes_on_target AFTER INIT: {env.engine.package_sokoban_env.boxes_on_target}")
+    LOG.debug(f"Actual count of boxes on target (value 3): {np.sum(env.engine.package_sokoban_env.room_state == 3)}")
+    LOG.debug(f"Boxes at value 4: {np.sum(env.engine.package_sokoban_env.room_state == 4)}")
+    LOG.debug(f"Targets at value 2: {np.sum(env.engine.package_sokoban_env.room_fixed == 2)}")
+    
+    # Try each action individually
+    for a in range(len(ACTION_LOOKUP)):
+        LOG.debug(f"\nTrying action {a} ({ACTION_LOOKUP[a]}):")
+        snapshot = await env._serialize_engine()
+        try:
+            test_env = await SokobanEnvironment._deserialize_engine(snapshot, inst)
+            LOG.debug(f"  Before: player @ {test_env.engine.package_sokoban_env.player_position}, boxes @ {np.argwhere((test_env.engine.package_sokoban_env.room_state == 3) | (test_env.engine.package_sokoban_env.room_state == 4))}")
+            await test_env.engine._step_engine(a)
+            LOG.debug(f"  After:  player @ {test_env.engine.package_sokoban_env.player_position}, boxes @ {np.argwhere((test_env.engine.package_sokoban_env.room_state == 3) | (test_env.engine.package_sokoban_env.room_state == 4))}")
+            LOG.debug(f"  Action {a} succeeded, boxes_on_target: {test_env.engine.package_sokoban_env.boxes_on_target}")
+        except Exception as e:
+            LOG.debug(f"  Action {a} failed: {e}")
+    
+    return env
+
+
 # ╰────────────────────────────────────────────────────────────────────╯ #
 
 
@@ -73,6 +119,7 @@ def solved(env: SokobanEnvironment) -> bool:
 async def greedy_tree_mcts_plan(
     tree: TrajectoryTreeStore,
     root_id: str,
+    task_instance: SokobanTaskInstance,
     *,
     rollouts_per_action: int = 50,
     max_depth: int = 30,
@@ -88,14 +135,12 @@ async def greedy_tree_mcts_plan(
 
         env_blob = tree.load_snapshot_blob(node_id)
         env = await SokobanEnvironment._deserialize_engine(
-            pickle.loads(gzip.decompress(env_blob))
+            pickle.loads(gzip.decompress(env_blob)), task_instance
         )
         LOG.debug(
             f"player @ {env.engine.package_sokoban_env.player_position} boxes @ {np.argwhere((env.engine.package_sokoban_env.room_state == 3) | (env.engine.package_sokoban_env.room_state == 4))}"
         )  # LOGGING
-        if solved(env):
-            break
-
+        
         # legal_n = env.engine.package_sokoban_env.action_space.n # Old way
         q_vals: dict[int, float] = {}  # Initialize q_vals here
         # enumerate every Sokoban action (4 moves + 4 pushes + no-op = 9)
@@ -119,7 +164,7 @@ async def greedy_tree_mcts_plan(
                 tmp_env_for_step = await SokobanEnvironment._deserialize_engine(
                     pickle.loads(
                         gzip.decompress(env_blob)
-                    )  # Re-deserialize parent to ensure clean state for step
+                    ), task_instance  # Re-deserialize parent to ensure clean state for step
                 )
                 try:
                     await tmp_env_for_step.engine._step_engine(a)
@@ -150,7 +195,7 @@ async def greedy_tree_mcts_plan(
                 continue
 
             child_env = await SokobanEnvironment._deserialize_engine(
-                pickle.loads(gzip.decompress(tree.load_snapshot_blob(child_id)))
+                pickle.loads(gzip.decompress(tree.load_snapshot_blob(child_id))), task_instance
             )
             # run A* on the *engine*, not the env wrapper
             path = await ENGINE_ASTAR(child_env.engine, max_nodes=1_000)  # try to solve
@@ -209,19 +254,27 @@ async def greedy_tree_mcts_plan(
         if not valid_actions:
             # This means no actions evaluated (or timed out) or none of the evaluated actions
             # correspond to an actual created child node (e.g., all were illegal).
+            LOG.debug(f"No valid actions available at depth {depth}. Stopping MCTS.")
             break
 
         best_a = max(valid_actions, key=valid_actions.get)
         plan.append(best_a)
 
-        # Since best_a is from valid_actions (which are confirmed to have corresponding children),
-        # we can directly find the next node_id.
+        # Move to child node
         node_id = next(
             cid_loop
             for cid_loop in current_children_ids
             if tree.graph[node_id][cid_loop]["action"] == best_a
         )
         LOG.debug(f"best={best_a} → new node={node_id[:6]}")  # LOGGING
+        # Check if the chosen child is a terminal state, and break after adding final action
+        child_blob = tree.load_snapshot_blob(node_id)
+        child_env = await SokobanEnvironment._deserialize_engine(
+            pickle.loads(gzip.decompress(child_blob)), task_instance
+        )
+        if solved(child_env):
+            LOG.debug("Child node is terminal. Ending plan.")
+            break
 
     return plan, q_hist
 
@@ -257,7 +310,7 @@ async def test_mcts_sokoban_run(tmp_path: Path) -> None:
 
     # Diagnostic: Test A* directly on the root SNAP state
     diag_env = await SokobanEnvironment._deserialize_engine(
-        pickle.loads(gzip.decompress(root_blob))
+        pickle.loads(gzip.decompress(root_blob)), inst
     )
     LOG.debug(f"Diagnostic A* on initial state with max_nodes=5000:")
     diag_path = await ENGINE_ASTAR(diag_env.engine, max_nodes=5000)
@@ -269,6 +322,7 @@ async def test_mcts_sokoban_run(tmp_path: Path) -> None:
     plan, q_hist = await greedy_tree_mcts_plan(
         tree,
         root_id,
+        inst,
         rollouts_per_action=50,
         max_depth=30,
         timeout_s=30.0,
@@ -279,7 +333,7 @@ async def test_mcts_sokoban_run(tmp_path: Path) -> None:
 
     # 4) verify the plan solves the puzzle
     checker_env = await SokobanEnvironment._deserialize_engine(
-        pickle.loads(gzip.decompress(root_blob))
+        pickle.loads(gzip.decompress(root_blob)), inst
     )
     for a in plan:
         await checker_env.engine._step_engine(a)
@@ -290,5 +344,12 @@ async def test_mcts_sokoban_run(tmp_path: Path) -> None:
 if __name__ == "__main__":
     import tempfile
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        asyncio.run(test_mcts_sokoban_run(Path(tmpdir)))
+    async def main():
+        # First run debug to understand action issues
+        await debug_basic_actions()
+        
+        # Then run the main test
+        with tempfile.TemporaryDirectory() as tmpdir:
+            await test_mcts_sokoban_run(Path(tmpdir))
+
+    asyncio.run(main())

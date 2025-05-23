@@ -16,8 +16,8 @@ from examples.sokoban.taskset import (
     SokobanTaskInstance,
     SokobanTaskInstanceMetadata,
 )
-from environment.tools import EnvToolCall
-from tasks.core import Impetus, Intent
+from src.environment.tools import EnvToolCall
+from src.tasks.core import Impetus, Intent
 
 # ───────────────────────────────── snapshot ───────────────────────────── #
 UNSOLVABLE_SNAPSHOT: Dict[str, Any] = {

@@ -7,12 +7,12 @@ from dataclasses import dataclass
 
 from datasets import load_dataset
 
-from stateful.engine import StatefulEngine, StatefulEngineSnapshot
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from tasks.core import TaskInstance as BaseTaskInstance
+from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.tasks.core import TaskInstance as BaseTaskInstance
 
 
-# --- Task Loading and Scoring (Moved from environment.py) ---
+# --- Task Loading and Scoring (Moved from src.environment.py) ---
 def load_tasks() -> List[Dict[str, Any]]:
     """Load tasks from cache or HuggingFace dataset and cache them."""
     cache_path = Path(__file__).parent / "dataset" / "hendryks.json"

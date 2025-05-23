@@ -335,7 +335,11 @@ def generate_room(
 
     # If loop completes without success
     raise RuntimeWarning(
-        f"Generated Model with score == 0 after {MAX_GENERATION_RETRIES} attempts (initial_seed={initial_seed})."
+        f"Generated Model with score == 0 after {MAX_GENERATION_RETRIES} attempts. "
+        f"Parameters: initial_seed={initial_seed}, dim={dim}, "
+        f"p_change_directions={p_change_directions}, num_steps={num_steps}, "
+        f"num_boxes={num_boxes}, second_player={second_player}, "
+        f"search_depth={search_depth}."
     )
 
 

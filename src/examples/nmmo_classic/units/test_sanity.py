@@ -21,7 +21,7 @@ from examples.nmmo_classic.taskset import (
     NMMO3TaskInstance,
     NMMO3TaskInstanceMetadata,
 )
-from tasks.core import Impetus, Intent
+from src.tasks.core import Impetus, Intent
 
 # we reuse the small ACTION_TEMPLATES Dict from test_synth_react
 from examples.nmmo_classic.test_synth_react import ACTION_TEMPLATES

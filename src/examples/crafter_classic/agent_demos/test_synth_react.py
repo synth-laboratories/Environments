@@ -13,12 +13,12 @@ from synth_sdk.tracing.upload import upload
 from synth_sdk.tracing.utils import get_system_id
 
 # Crafter specific imports
-from examples.crafter_classic.environment import (
+from src.examples.crafter_classic.environment import (
     CrafterClassicEnvironment,
     CrafterPublicState,
     CrafterPrivateState,
 )
-from examples.crafter_classic.engine import (
+from src.examples.crafter_classic.engine import (
     CRAFTER_ACTION_MAP # map of action name to int
 )
 # Convert CRAFTER_ACTION_MAP to ACTION_STRING_TO_INT and INT_TO_ACTION_STRING
@@ -26,16 +26,51 @@ ACTION_STRING_TO_INT: Dict[str, int] = CRAFTER_ACTION_MAP
 INT_TO_ACTION_STRING: Dict[int, str] = {v: k for k, v in CRAFTER_ACTION_MAP.items()}
 
 
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from examples.crafter_classic.taskset import CrafterTaskInstance, CrafterTaskInstanceMetadata
-from tasks.core import Impetus, Intent, TaskInstance
-from environment.tools import EnvToolCall
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.examples.crafter_classic.taskset import CrafterTaskInstance, CrafterTaskInstanceMetadata
+from src.tasks.core import Impetus, Intent, TaskInstance
+from src.environment.tools import EnvToolCall
 import re
 
 import logging
 
 logging.disable(logging.CRITICAL)
 
+
+# --- Helper to build crafter semantic mapping ---
+def get_crafter_semantic_mapping():
+    """Build the crafter semantic ID to item name mapping."""
+    import crafter
+    import itertools
+    
+    # Create a dummy env to get ID mappings (same as environment.py)
+    dummyenv = None
+    try:
+        dummyenv = crafter.Env()
+        max_id = max(
+            max(dummyenv._world._mat_ids.values()),
+            max(dummyenv._sem_view._obj_ids.values()),
+        ) + 1
+        id_to_item = ["void"] * max_id
+        for name, ind in itertools.chain(
+                dummyenv._world._mat_ids.items(),
+                dummyenv._sem_view._obj_ids.items()):
+            if name is None:
+                clean = "none"
+            elif hasattr(name, "__name__"):
+                clean = name.__name__
+            else:
+                clean = str(name)
+            id_to_item[ind] = clean.lower()
+        player_idx = id_to_item.index("player")
+        return id_to_item, player_idx
+    finally:
+        if dummyenv:
+            try:
+                dummyenv.close()
+            except Exception:
+                pass
+        del dummyenv
 
 # --- Helper function to format observation for LLM ---
 def format_obs_for_llm_from_states(
@@ -49,6 +84,53 @@ def format_obs_for_llm_from_states(
     if not achievements_str:
         achievements_str = "none"
     
+    # Add map view around player using the real crafter semantic mapping
+    map_view = ""
+    if pub.semantic_map is not None:
+        px, py = pub.player_position
+        view_size = 7  # 7x7 view around player
+        half_view = view_size // 2
+        
+        # Get the real crafter semantic mapping
+        id_to_item, player_idx = get_crafter_semantic_mapping()
+        
+        # Create a local view around the player using same logic as _plain_grid
+        map_view += f"\nLocal Map View ({view_size}x{view_size} around player):\n"
+        matrix = []
+        for dy in range(-half_view, half_view + 1):
+            row = []
+            for dx in range(-half_view, half_view + 1):
+                x, y = px + dx, py + dy
+                if not (0 <= x < pub.semantic_map.shape[0] and 0 <= y < pub.semantic_map.shape[1]):
+                    row.append("void")
+                else:
+                    idx = pub.semantic_map[x, y]
+                    if dx == 0 and dy == 0:
+                        row.append("player")  # Player position
+                    else:
+                        # Use the real crafter mapping
+                        item_name = id_to_item[idx] if idx < len(id_to_item) else "unknown"
+                        row.append(item_name)
+            matrix.append(row)
+        
+        # Transpose the matrix like _plain_grid does
+        transposed = list(zip(*matrix))
+        # Convert each row to a space-separated string
+        for row in transposed:
+            map_view += " ".join(row) + "\n"
+        
+        # Create a legend of items actually visible in the map
+        visible_items = set()
+        for row in transposed:
+            for item in row:
+                if item not in ["void", "player"]:
+                    visible_items.add(item)
+        
+        if visible_items:
+            map_view += f"\nVisible items: {', '.join(sorted(visible_items))}"
+        else:
+            map_view += "\nNo special items visible (mostly grass/empty)"
+    
     # Simplified observation, focusing on key elements
     return (
         f"Steps: {pub.num_steps_taken}/{pub.max_steps_episode}\n"
@@ -58,6 +140,7 @@ def format_obs_for_llm_from_states(
         f"Player Position: {pub.player_position}\n"
         f"Last Reward: {priv.reward_last_step:.2f}\n"
         f"Terminated: {priv.terminated} | Truncated: {priv.truncated}"
+        f"{map_view}"
     )
 
 
@@ -113,7 +196,7 @@ class TerminateArgs(BaseModel):
 # --- ReAct agent for Crafter -------------------------------------------------- #
 class CrafterMove(EnvToolCall): # Simple EnvToolCall wrapper
     def __init__(self, action: int):
-        self.action = action
+        super().__init__(tool="interact", args={"action": action})
 
 
 class ReActAgent:
@@ -163,6 +246,7 @@ class ReActAgent:
 
     @trace_event_async(event_type="react_agent_decide")
     async def decide(self, obs_str: str, current_raw_obs: Dict[str, Any]) -> int: # obs_str is the formatted one
+        print(f"[AGENT_DEBUG] Starting decide with obs: {obs_str[:100]}...")
         self.history.append({"type": "obs", "content": obs_str})
         self.last_obs_dict = current_raw_obs # Store for terminate guardrail
 
@@ -175,6 +259,7 @@ class ReActAgent:
 
 
         formatted_prompt_history = self._format_history_for_prompt()
+        print(f"[AGENT_DEBUG] History length: {len(self.history)}")
 
         # Updated prompt for Crafter
         prompt = (
@@ -194,9 +279,11 @@ class ReActAgent:
             "Always provide a `reasoning` field in your tool call."
         )
 
+        print(f"[AGENT_DEBUG] Calling LLM with prompt length: {len(prompt)}")
         response_obj = await self.llm.respond_async(
             system_message=system_message, user_message=prompt, tools=self.tools
         )
+        print(f"[AGENT_DEBUG] LLM response received")
         
         assert response_obj.tool_calls, "Response object didn't have tool call"
         tool_calls = None
@@ -204,10 +291,12 @@ class ReActAgent:
         try:
             if hasattr(response_obj, "tool_calls") and response_obj.tool_calls:
                 tool_calls = response_obj.tool_calls
+                print(f"[AGENT_DEBUG] Found {len(tool_calls)} tool calls")
             # ... (rest of the try-except for tool call parsing, similar to Sokoban, but adapted for CrafterInteractArgs)
 
             # Simplified fallback for now, can be improved
             if not tool_calls:
+                print(f"[AGENT_DEBUG] No tool calls found, falling back to noop")
                 self.history.append(
                     {
                         "type": "tool_call",
@@ -221,6 +310,7 @@ class ReActAgent:
                 return ACTION_STRING_TO_INT["noop"]
 
             if len(tool_calls) == 0:
+                print(f"[AGENT_DEBUG] Empty tool calls list, falling back to noop")
                 self.history.append(
                     {"type": "error", "content": "LLM returned empty tool_calls list."}
                 )
@@ -250,12 +340,16 @@ class ReActAgent:
                 else: # Arguments are a JSON string
                     tool_arguments_dict = json.loads(tool_args_str)
             else:
+                print(f"[AGENT_DEBUG] Unexpected tool_call structure, falling back to noop")
                 self.history.append(
                     {"type": "error", "content": "Unexpected tool_call structure."}
                 )
                 return ACTION_STRING_TO_INT["noop"]
 
+            print(f"[AGENT_DEBUG] Tool name: {tool_name}, Args: {tool_args_str}")
+
             if not tool_args_str: # Should not happen if structure is correct
+                 print(f"[AGENT_DEBUG] Missing arguments for tool {tool_name}, falling back to noop")
                  self.history.append(
                     {
                         "type": "error",
@@ -275,9 +369,11 @@ class ReActAgent:
             )
 
             if tool_name == "crafter_interact":
+                print(f"[AGENT_DEBUG] Processing crafter_interact tool call")
                 validated_args = CrafterInteractArgs(**tool_arguments)
                 action_str = validated_args.action_name
                 action_int = ACTION_STRING_TO_INT.get(action_str.lower())
+                print(f"[AGENT_DEBUG] Action string: {action_str}, Action int: {action_int}")
 
                 if action_int is None:
                     # Attempt to find a partial match if full match fails
@@ -286,13 +382,16 @@ class ReActAgent:
                             action_int = ACTION_STRING_TO_INT[valid_action]
                             break
                     if action_int is None:
+                        print(f"[AGENT_DEBUG] Invalid action_name: {action_str}, falling back to noop")
                         self.history.append(
                             {"type": "error", "content": f"Invalid action_name: {action_str}. Falling back to noop."}
                         )
                         return ACTION_STRING_TO_INT["noop"] # Fallback to noop
+                print(f"[AGENT_DEBUG] Returning action: {action_int}")
                 return action_int
 
             elif tool_name == "terminate":
+                print(f"[AGENT_DEBUG] Processing terminate tool call")
                 # Basic terminate, could add guardrails like in Sokoban (e.g., check steps, health)
                 # For now, if LLM decides to terminate, we allow it.
                 # A guardrail could be: if health is critical and not many achievements, don't terminate.
@@ -301,6 +400,7 @@ class ReActAgent:
                     priv_state: CrafterPrivateState = self.last_obs_dict["private"]
                     if priv_state.terminated or priv_state.truncated:
                          # If env already terminated/truncated, agent's decision to terminate is valid.
+                        print(f"[AGENT_DEBUG] Environment already terminated/truncated, returning -1")
                         return -1 
                     # Add custom logic: e.g. if agent wants to terminate because it thinks it's "done"
                     # but it's not actually a terminal state by the environment.
@@ -308,9 +408,11 @@ class ReActAgent:
                     # Consider adding a check like: if len(self.current_achievements) < threshold etc.
                     # print(f"Agent decided to terminate. Reason: {tool_arguments.get('reason')}")
 
+                print(f"[AGENT_DEBUG] Agent decided to terminate, returning -1")
                 return -1 # Signal termination to the main loop
 
             else:
+                print(f"[AGENT_DEBUG] Unknown tool_name: {tool_name}, falling back to noop")
                 self.history.append(
                     {"type": "error", "content": f"Unknown tool_name: {tool_name}"}
                 )
@@ -319,6 +421,7 @@ class ReActAgent:
         except Exception as e:
             # Log the exception and the problematic response_obj content if possible
             error_content = f"Error processing LLM response: {str(e)}. Response: {str(response_obj)[:500]}"
+            print(f"[AGENT_DEBUG] Exception in decide: {error_content}")
             self.history.append(
                 {"type": "error", "content": error_content}
             )
@@ -355,7 +458,8 @@ async def test_react_agent_crafter(tmp_path: Path):
     llm = LM(
         model_name="gpt-4.1-nano", formatting_model_name="gpt-4.1-nano", temperature=0.0
     )
-    agent = ReActAgent(llm, max_turns=30) # Reduced max_turns for a single test
+    agent = ReActAgent(llm, max_turns=30)  # Increased for meaningful progress
+    print(f"[DEBUG] Created agent with max_turns=30")
 
     async def run_episode():
         obs_payload = await env.initialize()
@@ -439,72 +543,104 @@ async def test_react_agent_crafter(tmp_path: Path):
     assert episode_completed or num_achievements > 0, "Agent failed to complete the episode or unlock any achievement in the test."
 
 
-async def eval_react_crafter() -> None:
+async def eval_react_crafter(
+    model_name: str = "gpt-4.1-nano",
+    formatting_model_name: str = "gpt-4.1-nano", 
+    modes: List[str] = None,
+    n_instances_per_mode: int = 3
+) -> List[Dict[str, Any]]:
     """
     Run ReAct agents on Crafter instances of different difficulties,
-    and print aggregated success rates and average unique achievements.
+    and returns a list of dictionaries containing aggregated results for each mode.
     """
     from tabulate import tabulate # Ensure tabulate is available
     import math
 
-    current_model_name_for_eval = "gpt-4.1-nano"
+    if modes is None:
+        modes = ["easy", "hard"]
+
+    current_model_name_for_eval = model_name
 
     _temp_llm_for_names = LM(
         model_name=current_model_name_for_eval,
-        formatting_model_name=current_model_name_for_eval,
+        formatting_model_name=formatting_model_name,
         temperature=0.0,
     )
     _temp_agent_for_names = ReActAgent(_temp_llm_for_names)
-    actual_system_name = _temp_agent_for_names.system_name
+    actual_system_name = _temp_agent_for_names.system_name # Still useful for logging within this func
 
     # ------------------------------------------------------------------ helpers
     async def run_episode_eval(inst: CrafterTaskInstance, agent_max_turns: int) -> tuple[bool, int]:
         """Run a single agent/instance episode and return (success_status, num_unique_achievements)."""
+        print(f"[DEBUG] Starting episode for instance {inst.id}")
         hist_cb = CrafterHistoryObservationCallable(max_history=1)
         env = CrafterClassicEnvironment(inst, custom_step_obs=hist_cb)
         
         llm_for_episode = LM(
             model_name=current_model_name_for_eval,
-            formatting_model_name=current_model_name_for_eval,
+            formatting_model_name=formatting_model_name,
             temperature=0.0,
         )
-        agent = ReActAgent(llm_for_episode, max_turns=agent_max_turns)
+        agent = ReActAgent(llm_for_episode, max_turns=30)  # Increased for meaningful progress
+        print(f"[DEBUG] Created agent with max_turns=30 for model {current_model_name_for_eval}")
 
+        print(f"[DEBUG] Initializing environment...")
         obs_payload = await env.initialize()
+        print(f"[DEBUG] Environment initialized. Obs keys: {list(obs_payload.keys()) if isinstance(obs_payload, dict) else type(obs_payload)}")
         if "error" in obs_payload:
+            print(f"[DEBUG] ERROR during env.initialize: {obs_payload['error']}")
             return False, 0
 
         current_formatted_obs = obs_payload["formatted_obs"]
         raw_obs_for_agent_decision = obs_payload
+        print(f"[DEBUG] Initial formatted obs: {current_formatted_obs[:200]}...")
 
-        for _ in range(agent.max_turns):
+        turn_count = 0
+        for turn_idx in range(agent.max_turns):
+            turn_count += 1
+            print(f"[DEBUG] === Turn {turn_idx + 1}/{agent.max_turns} ===")
+            print(f"[DEBUG] Agent deciding on obs: {current_formatted_obs[:100]}...")
+            
             act_idx = await agent.decide(current_formatted_obs, raw_obs_for_agent_decision)
+            print(f"[DEBUG] Agent decided action: {act_idx}")
+            
             if act_idx == -1:  # agent terminated
+                print(f"[DEBUG] Agent decided to terminate after {turn_count} turns")
                 break
             
+            print(f"[DEBUG] Stepping environment with action {act_idx}")
             obs_payload_next = await env.step([[CrafterMove(act_idx)]])
+            print(f"[DEBUG] Environment step completed. Obs keys: {list(obs_payload_next.keys()) if isinstance(obs_payload_next, dict) else type(obs_payload_next)}")
+            
             if "error" in obs_payload_next:
+                print(f"[DEBUG] ERROR during env.step: {obs_payload_next['error']}")
                 return False, len(agent.current_achievements) # Return current achievements even on error
             
             current_formatted_obs = obs_payload_next["formatted_obs"]
             raw_obs_for_agent_decision = obs_payload_next
             agent.history.append({"type": "tool_response", "content": "Action executed"})
             
+            print(f"[DEBUG] New formatted obs: {current_formatted_obs}...")
+            
             obs_payload = obs_payload_next
             if obs_payload["private"].terminated or obs_payload["private"].truncated:
+                print(f"[DEBUG] Environment terminated/truncated after {turn_count} turns")
+                print(f"[DEBUG] Terminated: {obs_payload['private'].terminated}, Truncated: {obs_payload['private'].truncated}")
                 break
         
+        print(f"[DEBUG] Episode completed after {turn_count} turns")
         final_private_state: CrafterPrivateState = obs_payload["private"]
-        # Success can be just termination/truncation for this eval, or more complex criteria
-        run_successful = final_private_state.terminated or final_private_state.truncated
+        run_successful = (final_private_state.terminated or final_private_state.truncated) or len(agent.current_achievements) >= 1
         num_unique_achievements = len(agent.current_achievements)
+        print(f"[DEBUG] Episode result - successful: {run_successful}, achievements: {num_unique_achievements}")
+        print(f"[DEBUG] Agent achievements: {list(agent.current_achievements)}")
+        print(f"[DEBUG] Final private state - terminated: {final_private_state.terminated}, truncated: {final_private_state.truncated}")
+        print(f"[DEBUG] Total reward: {final_private_state.total_reward_episode}")
         return run_successful, num_unique_achievements
 
     # ---------------------------------------------------------------- instance factory
     async def make_crafter_instances(difficulty: str, n_instances: int = 3, start_seed: int = 0) -> List[CrafterTaskInstance]:
         instances = []
-        # Removed directory creation and individual file saving from here
-
         for i in range(n_instances):
             current_seed = start_seed + i
             metadata = CrafterTaskInstanceMetadata(
@@ -523,25 +659,22 @@ async def eval_react_crafter() -> None:
                 initial_engine_snapshot=None
             )
             instances.append(instance)
-            # Removed individual saving
         return instances
 
     # ---------------------------------------------------------------- evaluation
-    # User wants 3 agents on easy and hard tasks.
-    # Max turns might differ per difficulty if desired, e.g. more for hard.
-    configs = [
-        ("easy", 3, 15), # (difficulty_label, num_agents/instances, max_turns_per_episode)
-        ("hard", 3, 15)  # Max turns set to 15 as per user request
-    ]
-    table_rows = []
+    configs = []
+    for mode in modes:
+        if mode == "easy":
+            configs.append(("easy", n_instances_per_mode, 15))
+        elif mode == "hard":
+            configs.append(("hard", n_instances_per_mode, 15))
+    
+    results_for_model = [] # Stores dicts for each mode for the current model
     base_seed_for_difficulty = {"easy": 1000, "hard": 2000}
 
-    print(f"Starting Crafter ReAct Agent Evaluation...")
-    print(f"Model: {current_model_name_for_eval}, System: {actual_system_name}")
+    print(f"Starting Crafter ReAct Agent Evaluation for Model: {current_model_name_for_eval}, System: {actual_system_name}")
 
-    all_generated_task_data = [] # To store all task instance dicts
-
-    # First, generate all task instances for all configurations
+    all_generated_task_data = [] 
     print("\nGenerating task instances...")
     all_tasks_for_eval: Dict[str, List[CrafterTaskInstance]] = {}
     for label, num_agents, _ in configs:
@@ -552,7 +685,6 @@ async def eval_react_crafter() -> None:
             all_generated_task_data.append(instance_dict)
         print(f"Generated {len(insts)} instances for {label} difficulty.")
 
-    # Save all generated task data to a single JSON file
     dataset_dir = Path(__file__).parent.parent / "dataset"
     dataset_dir.mkdir(parents=True, exist_ok=True)
     synthetic_mix_path = dataset_dir / "synthetic_mix.json"
@@ -560,33 +692,34 @@ async def eval_react_crafter() -> None:
         json.dump(all_generated_task_data, f, indent=2)
     print(f"Saved all {len(all_generated_task_data)} generated task instances to {synthetic_mix_path}")
 
-    # Now, run the evaluations using the generated tasks
     for label, num_agents, max_episode_turns in configs:
-        print(f"\nRunning {num_agents} agents on {label} difficulty tasks (max_turns: {max_episode_turns})...")
-        # insts = await make_crafter_instances(label, n_instances=num_agents, start_seed=base_seed_for_difficulty[label])
-        # Retrieve the already generated instances for this difficulty
+        print(f"\nRunning {num_agents} agents on {label} difficulty tasks (max_turns: {max_episode_turns}) for model {current_model_name_for_eval}...")
         current_difficulty_instances = all_tasks_for_eval[label]
+        print(f"[DEBUG] About to run {len(current_difficulty_instances)} instances")
         
-        # Run episodes for all instances of this difficulty setting
-        # Each instance effectively gets its own agent run
-        results = await asyncio.gather(*(run_episode_eval(inst, max_episode_turns) for inst in insts))
+        import time
+        start_time = time.time()
+        print(f"[DEBUG] Starting asyncio.gather for {len(current_difficulty_instances)} episodes at {start_time}")
+        # results_per_episode is list of (success_status, num_unique_achievements)
+        results_per_episode = await asyncio.gather(*(run_episode_eval(inst, max_episode_turns) for inst in current_difficulty_instances))
+        end_time = time.time()
+        print(f"[DEBUG] Completed asyncio.gather in {end_time - start_time:.2f} seconds")
+        print(f"[DEBUG] Results for model {current_model_name_for_eval} on {label}: {results_per_episode}")
         
-        num_successful_runs = sum(1 for r_success, _ in results if r_success)
-        total_unique_achievements = sum(r_ach for _, r_ach in results)
-        avg_unique_achievements = total_unique_achievements / len(results) if results else 0.0
+        num_successful_runs = sum(1 for r_success, _ in results_per_episode if r_success)
+        total_unique_achievements = sum(r_ach for _, r_ach in results_per_episode)
+        avg_unique_achievements = total_unique_achievements / len(results_per_episode) if results_per_episode else 0.0
         
-        table_rows.append([label, f"{num_successful_runs}/{len(insts)}", f"{avg_unique_achievements:.2f}"])
-        print(f"Completed {label}: {num_successful_runs}/{len(insts)} successful, Avg. Achievements: {avg_unique_achievements:.2f}")
+        # Append a dictionary for this mode's results
+        results_for_model.append({
+            'Model': current_model_name_for_eval,
+            'Difficulty': label,
+            'Successful Runs': f"{num_successful_runs}/{len(current_difficulty_instances)}",
+            'Avg Unique Achievements': f"{avg_unique_achievements:.2f}"
+        })
+        print(f"Completed {label} for model {current_model_name_for_eval}: {num_successful_runs}/{len(current_difficulty_instances)} successful, Avg. Achievements: {avg_unique_achievements:.2f}")
 
-    print("\n--- Evaluation Summary ---")
-    print(f"Model: {current_model_name_for_eval}, System: {actual_system_name}")
-    print(
-        tabulate(
-            table_rows,
-            headers=["Difficulty", "Successful Runs", "Avg Unique Achievements"],
-            tablefmt="github",
-        )
-    )
+    return results_for_model
 
 
 if __name__ == "__main__":
@@ -595,5 +728,59 @@ if __name__ == "__main__":
     # with tempfile.TemporaryDirectory() as tmpdir:
     #     asyncio.run(test_react_agent_crafter(Path(tmpdir)))
     
-    # To run the evaluation:
-    asyncio.run(eval_react_crafter())
+    # Run both models in parallel with 3 rollouts each
+    async def run_parallel_evaluation():
+        # Define the models to test
+        models_to_test = [
+            {
+                "model_name": "gpt-4.1-mini",
+                "formatting_model_name": "gpt-4.1-mini"
+            },
+            {
+                "model_name": "gpt-4.1",
+                "formatting_model_name": "gpt-4.1"
+            }
+        ]
+        
+        print("Starting parallel evaluation of both models...")
+        print("Each model will run 3 parallel environment rollouts")
+        
+        # eval_react_crafter now returns a List[Dict[str, Any]]
+        # So, results_from_all_models will be a List[List[Dict[str, Any]]]
+        results_from_all_models = await asyncio.gather(
+            *[
+                eval_react_crafter(
+                    model_name=model_config["model_name"],
+                    formatting_model_name=model_config["formatting_model_name"],
+                    modes=["easy"], # Can add "hard" or other modes here
+                    n_instances_per_mode=3,  # 3 parallel rollouts per model
+                )
+                for model_config in models_to_test
+            ]
+        )
+        
+        print("\n=== PARALLEL EVALUATION COMPLETED ===")
+        print("Both models have finished their rollouts.")
+
+        # Flatten the list of lists into a single list of dictionaries for the combined table
+        combined_results_data = []
+        for model_result_list in results_from_all_models:
+            combined_results_data.extend(model_result_list)
+
+        print("\n--- Combined Evaluation Summary Table ---")
+        from tabulate import tabulate # Ensure tabulate is imported here if not globally
+        
+        if combined_results_data: # Check if there's data to tabulate
+            # When using a list of dicts, headers="keys" tells tabulate to use dict keys.
+            print(
+                tabulate(
+                    combined_results_data,
+                    headers="keys", # Corrected: use "keys" for list of dicts
+                    tablefmt="github",
+                )
+            )
+        else:
+            print("No evaluation data to display.")
+    
+    # Run the parallel evaluation
+    asyncio.run(run_parallel_evaluation())

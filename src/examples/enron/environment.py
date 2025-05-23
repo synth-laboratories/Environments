@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
-from environment.tools import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from stateful.core import StatefulEnvironment
+from src.environment.tools import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.stateful.core import StatefulEnvironment
 from examples.enron.engine import (
     EnronEngine,
     ACTION_SEARCH,

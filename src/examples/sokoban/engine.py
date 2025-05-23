@@ -1,19 +1,19 @@
 from __future__ import annotations
 from typing import Optional, Dict, Any, Tuple, List, cast
 
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from stateful.engine import StatefulEngine, StatefulEngineSnapshot
-from tasks.core import TaskInstance
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from src.tasks.core import TaskInstance
 import numpy as np
 from dataclasses import dataclass, field
 from examples.sokoban.taskset import (
     SokobanTaskInstance,
 )  # Assuming this is where SokobanTaskInstance is defined
-from reproducibility.core import IReproducibleEngine  # Added import
+from src.reproducibility.core import IReproducibleEngine  # Added import
 import logging
 from gymnasium.utils import seeding
 from pydantic import BaseModel
-from environment.rewards.core import RewardStack, RewardComponent
+from src.environment.rewards.core import RewardStack, RewardComponent
 from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP, SokobanEnv as GymSokobanEnv
 
 # Configure logging for debugging SokobanEngine steps
@@ -339,7 +339,7 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
         # as we are now using our RewardStack for a more structured reward calculation.
         obs_raw, _, terminated_gym, info = self.package_sokoban_env.step(action)
 
-        # --- Construct current public state (needed for RewardStack and for observation) ---
+        self.package_sokoban_env.boxes_on_target = _count_boxes_on_target(self.package_sokoban_env.room_state)
         current_pub_state = SokobanPublicState(
             dim_room=self.package_sokoban_env.dim_room,
             room_fixed=self.package_sokoban_env.room_fixed.copy(),
@@ -499,7 +499,14 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
         StatefulEngine.__init__(engine)  # initialise mix-in parts
         engine.task_instance = instance  # assign restored TaskInstance
 
-        # --- 3. hydrate env & counters --------------------------------- #
+        # --- 3. initialize attributes that are normally set in __init__ --- #
+        engine._current_action_for_reward = None
+        engine.reward_stack = RewardStack(components=[
+            SokobanGoalAchievedComponent(),
+            SokobanStepPenaltyComponent(penalty=-0.01)
+        ])
+
+        # --- 4. hydrate env & counters --------------------------------- #
         engine.package_sokoban_env = package_sokoban_env_from_engine_snapshot(
             sokoban_engine_snapshot.engine_snapshot
         )

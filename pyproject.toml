@@ -1,6 +1,6 @@
 [project]
 name = "synth-env"
-version = "0.0.0.dev7"
+version = "0.0.0.dev8"
 description = ""
 authors = [{name = "Synth AI", email = "josh@usesynth.ai"}]
 license = {text = "MIT"}
@@ -23,6 +23,8 @@ dependencies = [
     "uvicorn>=0.34.2",
     "ty>=0.0.1a5",
     "ruff>=0.11.10",
+    "pyboy>=2.6.0",
+    "setuptools>=80.8.0",
 ]
 classifiers = []
 

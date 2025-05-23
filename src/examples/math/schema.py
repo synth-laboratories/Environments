@@ -2,7 +2,7 @@ from dataclasses import dataclass, asdict, fields
 from uuid import UUID
 from typing import Optional, Dict, Any
 
-from tasks.core import TaskInstance, TaskInstanceMetadata, Impetus, Intent
+from src.tasks.core import TaskInstance, TaskInstanceMetadata, Impetus, Intent
 
 
 @dataclass

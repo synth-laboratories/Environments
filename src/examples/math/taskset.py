@@ -3,7 +3,7 @@ from uuid import UUID
 import uuid
 from typing import List, Dict, Any, Optional
 
-from tasks.core import (
+from src.tasks.core import (
     TaskInstance,
     TaskInstanceMetadata,
     TaskInstanceSet,
