@@ -24,7 +24,7 @@ Note - this repo is under extremely active development. Hic sunt dracones, if no
 [] SWE-Bench (active dev - do not attempt)
 [] NMMO (active dev - do not attempt)
 [] Red (active dev)
-[] Verilog (active dev - do not attempt)
+[] Verilog (maturing)
 
 ...
 
