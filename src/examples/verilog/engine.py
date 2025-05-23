@@ -15,6 +15,13 @@ from src.environment.rewards.core import RewardStack, RewardComponent
 class VerilogEngineSnapshot(StatefulEngineSnapshot):
     task_instance_dict: Dict
     engine_snapshot: Dict
+    
+    def model_dump(self) -> Dict:
+        """Convert dataclass to dictionary for compatibility with Pydantic models."""
+        return {
+            "task_instance_dict": self.task_instance_dict,
+            "engine_snapshot": self.engine_snapshot
+        }
 
 
 @dataclass
@@ -79,11 +86,17 @@ class VerilogEngine(StatefulEngine):
         # Initialize paths - will be set properly in _reset_engine
         self.snapshot_dir: Optional[Path] = None
         self.build_dir: Optional[Path] = None
+        
+        # Track last compile/simulate outputs
+        self._last_compile_output: Optional[str] = None
+        self._last_simulate_output: Optional[str] = None
 
     async def _reset_engine(self, *, seed: Optional[int] = None) -> Tuple[VerilogPrivateState, VerilogPublicState]:
         """Initialize the Verilog environment with task files."""
         self._total_reward = 0.0
         self._current_action_for_reward = None
+        self._last_compile_output = None
+        self._last_simulate_output = None
         
         # Initialize snapshot from task instance
         self._init_snapshot()
@@ -106,6 +119,15 @@ class VerilogEngine(StatefulEngine):
     async def _step_engine(self, action_result: Dict[str, Any]) -> Tuple[VerilogPrivateState, VerilogPublicState]:
         """Process an action result and update engine state."""
         self._current_action_for_reward = action_result
+        
+        # Update last outputs if this is a compile or simulate action
+        if action_result.get("type") == "compile":
+            stdout = action_result.get("stdout", "")
+            stderr = action_result.get("stderr", "")
+            # Combine stdout and stderr for compile output, stderr has the error info
+            self._last_compile_output = stderr if stderr else stdout
+        elif action_result.get("type") == "simulate":
+            self._last_simulate_output = action_result.get("stdout")
         
         # Calculate reward using RewardStack
         current_pub_state = VerilogPublicState(
@@ -136,8 +158,8 @@ class VerilogEngine(StatefulEngine):
             files=self._get_file_contents(),
             build_dir=str(self.build_dir),
             task_completed=action_result.get("passed", False),
-            last_compile_output=action_result.get("stdout") if action_result.get("type") == "compile" else current_pub_state.last_compile_output,
-            last_simulate_output=action_result.get("stdout") if action_result.get("type") == "simulate" else current_pub_state.last_simulate_output
+            last_compile_output=self._last_compile_output,
+            last_simulate_output=self._last_simulate_output
         )
         
         return priv, pub
@@ -208,7 +230,7 @@ class VerilogEngine(StatefulEngine):
                 src_paths.append(tb_path)
                 
         binary = self.build_dir / "a.out"
-        cmd = ["iverilog", "-o", str(binary)] + [str(p) for p in src_paths]
+        cmd = ["iverilog", "-g2012", "-o", str(binary)] + [str(p) for p in src_paths]
         
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -234,7 +256,15 @@ class VerilogEngine(StatefulEngine):
         
         try:
             proc = subprocess.run(["vvp", bin_path], capture_output=True, text=True, timeout=30)
-            passed = "ALL_TESTS_PASSED" in proc.stdout
+            
+            # Check for various success indicators
+            stdout = proc.stdout
+            passed = (
+                "ALL_TESTS_PASSED" in stdout or
+                ("Mismatches: 0 " in stdout and "samples" in stdout) or
+                ("no mismatches" in stdout.lower() and "errors" not in stdout.lower())
+            )
+            
             return {
                 "ok": True,
                 "type": "simulate",
@@ -280,7 +310,7 @@ class VerilogEngine(StatefulEngine):
         """Deserialize engine from snapshot."""
         # This would need proper task instance deserialization
         # For now, create a minimal implementation
-        from examples.verilog.taskset import VerilogTaskInstance
+        from src.examples.verilog.taskset import VerilogTaskInstance
         
         task_instance = await VerilogTaskInstance.deserialize(snapshot.task_instance_dict)
         engine = cls(task_instance)

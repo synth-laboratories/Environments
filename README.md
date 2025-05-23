@@ -34,3 +34,4 @@ To use the Astral suite of devtools:
 package management: uv sync, uv add, uv remove
 linting: ruff format .
 type(hint) checking: uvx ty check
+
