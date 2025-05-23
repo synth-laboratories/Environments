@@ -63,7 +63,7 @@ FORAGEABLE_IDs = {2, 3, 4, 5, 6}  # placeholder - terrain constants changed in n
 # Metadata & TaskInstance dataclasses
 # ──────────────────────────────────────────────────────────────
 @dataclass
-class NMMO3TaskInstanceMetadata(TaskInstanceMetadata):
+class NeuralMMOTaskInstanceMetadata(TaskInstanceMetadata):
     difficulty: str
     seed: int
     map_size: int
@@ -80,7 +80,7 @@ class DifficultyFilter(TaskInstanceMetadataFilter):
     def __init__(self, tier: str):
         self.tier = tier
 
-    def __call__(self, instance: NMMO3TaskInstance) -> bool:
+    def __call__(self, instance: NeuralMMOTaskInstance) -> bool:
         m = instance.metadata
         b = DIFF_BOUNDS[self.tier]
         return (
@@ -91,7 +91,7 @@ class DifficultyFilter(TaskInstanceMetadataFilter):
 
 
 @dataclass
-class NMMO3TaskInstance(TaskInstance):
+class NeuralMMOTaskInstance(TaskInstance):
     async def serialize(self) -> dict:
         d = asdict(self)
         if isinstance(d.get("id"), UUID):
@@ -99,7 +99,7 @@ class NMMO3TaskInstance(TaskInstance):
         return d
 
     @classmethod
-    async def deserialize(cls, data: dict) -> "NMMO3TaskInstance":
+    async def deserialize(cls, data: dict) -> "NeuralMMOTaskInstance":
         if "id" in data:
             try:
                 data["id"] = UUID(str(data["id"]))
@@ -110,7 +110,7 @@ class NMMO3TaskInstance(TaskInstance):
         if "intent" in data:
             data["intent"] = Intent(**data["intent"])
         if "metadata" in data:
-            data["metadata"] = NMMO3TaskInstanceMetadata(**data["metadata"])
+            data["metadata"] = NeuralMMOTaskInstanceMetadata(**data["metadata"])
         keep = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in keep})
 
@@ -181,8 +181,8 @@ def _classify(metrics: Dict[str, Any]) -> str | None:
 # ──────────────────────────────────────────────────────────────
 # Main generator
 # ──────────────────────────────────────────────────────────────
-async def create_nmmo3_taskset(num_instances: int = NUM_INSTANCES) -> TaskInstanceSet:
-    instances: List[NMMO3TaskInstance] = []
+async def create_neural_mmo_taskset(num_instances: int = NUM_INSTANCES) -> TaskInstanceSet:
+    instances: List[NeuralMMOTaskInstance] = []
     seed = SEED_START
 
     while len(instances) < num_instances:
@@ -202,8 +202,8 @@ async def create_nmmo3_taskset(num_instances: int = NUM_INSTANCES) -> TaskInstan
         # Determine difficulty via DifficultyFilter
         difficulty = None
         # Build a temporary instance for filtering
-        temp_meta = NMMO3TaskInstanceMetadata(difficulty="", seed=seed, **metrics)
-        temp_instance = NMMO3TaskInstance(
+        temp_meta = NeuralMMOTaskInstanceMetadata(difficulty="", seed=seed, **metrics)
+        temp_instance = NeuralMMOTaskInstance(
             id=uuid4(),
             impetus=Impetus(instructions=""),
             intent=Intent(rubric={}, gold_trajectories=None, gold_state_diff={}),
@@ -239,7 +239,7 @@ async def create_nmmo3_taskset(num_instances: int = NUM_INSTANCES) -> TaskInstan
     )
 
     return TaskInstanceSet(
-        name="NMMO 3 Procedural TaskSet",
+        name="Neural MMO Classic Procedural TaskSet",
         description="Worlds bucketed by forage / hostile / water density.",
         instances=instances,
         split_info=split,
@@ -252,7 +252,7 @@ async def create_nmmo3_taskset(num_instances: int = NUM_INSTANCES) -> TaskInstan
 if __name__ == "__main__":
 
     async def _main():
-        ts = await create_nmmo3_taskset(12)
+        ts = await create_neural_mmo_taskset(12)
         print(
             f"Generated {len(ts.instances)} instances ➜ "
             f"{len(ts.split_info.val_instance_ids)} val / "
