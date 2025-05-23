@@ -13,7 +13,7 @@ import pytest
 # ––––– app imports ––––– #
 from examples.sokoban.environment import SokobanEnvironment
 from examples.sokoban.engine import SokobanEngineSnapshot
-from environment.tools import EnvToolCall
+from src.environment.tools import EnvToolCall
 
 # shared A* / heuristic utilities
 from examples.sokoban.units.astar_common import astar, solved
@@ -22,7 +22,7 @@ from examples.sokoban.taskset import (
     SokobanTaskInstanceMetadata,
     SokobanTaskInstance,
 )
-from tasks.core import TaskInstance, Impetus, Intent
+from src.tasks.core import TaskInstance, Impetus, Intent
 
 
 # ---------------- test fixture snapshot ---------------------------------- #

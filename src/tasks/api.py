@@ -1,4 +1,4 @@
-from tasks.core import (
+from src.tasks.core import (
     Task,
     TaskInstance,
     TaskInstanceSet,

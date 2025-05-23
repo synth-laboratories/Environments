@@ -1,8 +1,8 @@
 from abc import abstractmethod
 from typing import List
 
-from environment.shared_engine import Engine, InternalObservation
-from environment.tools import EnvToolCall
+from src.environment.shared_engine import Engine, InternalObservation
+from src.environment.tools import EnvToolCall
 from .state import State
 
 

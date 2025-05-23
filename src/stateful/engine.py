@@ -1,9 +1,9 @@
-from environment.shared_engine import Engine
+from src.environment.shared_engine import Engine
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar, Any, Tuple, Optional, Type
 from dataclasses import dataclass, asdict
 
-from tasks.core import TaskInstance
+from src.tasks.core import TaskInstance
 
 SnapshotType = TypeVar("SnapshotType", bound="StatefulEngineSnapshot")
 

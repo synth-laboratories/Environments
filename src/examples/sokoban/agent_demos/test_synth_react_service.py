@@ -2,10 +2,11 @@ import pytest
 import asyncio
 import json
 import uuid
+from typing import List
 
 from httpx import AsyncClient
 
-from examples.sokoban.agent_demos.test_synth_react import (
+from examples.sokoban.agent_demos.test_synth_react_locally import (
     ReActAgent,
     SIMPLE_SNAPSHOT,
 )
@@ -52,7 +53,7 @@ async def test_react_service_sokoban():
         public = obs["public"]
 
         # 4) Instantiate the LLM & ReAct agent
-        llm = LM(model_name="gpt-4.1-nano", formatting_model_name="gpt-4.1-nano", temperature=0.0)
+        llm = LM(model_name="gpt-4.1", formatting_model_name="gpt-4.1", temperature=0.0)
         agent = ReActAgent(llm)
 
         # Helper to track total boxes from the initial snapshot
@@ -148,52 +149,102 @@ async def run_service_episode(client, agent, snapshot, total_boxes):
     return bool(private.get("terminated"))
 
 # --- batch evaluation helper for service-based Sokoban ---
-async def eval_react_service_sokoban():
+async def eval_react_service_sokoban(
+        model_name: str = "gpt-4.1-nano",
+        formatting_model_name: str = "gpt-4.1-nano",
+        modes: list[str] = ["ultra-easy", "easy", "medium"],
+):
     from examples.sokoban.engine_helpers.room_utils import generate_room, get_shortest_action_path
     from tabulate import tabulate
 
-    # Model & agent setup
-    llm = LM(model_name="gpt-4.1-nano", formatting_model_name="gpt-4.1-nano", temperature=0.0)
+    llm = LM(model_name=model_name, formatting_model_name=formatting_model_name, temperature=0.0)
     agent = ReActAgent(llm)
-    total_boxes = SIMPLE_SNAPSHOT.get("num_boxes", 0)
+    total_boxes = 1
 
-    # Define difficulties and target solution lengths
-    configs = [("ultra-easy", 1), ("easy", 3), ("medium", 5)]
-    table_rows = []
+    difficulty_to_length_map = {
+        "ultra-easy": 1,
+        "easy": 3,
+        "medium": 5,
+        "hard": 7,
+        "ultra-hard": 10
+    }
 
-    # Reuse a single AsyncClient for all episodes
+    configs_for_modes = []
+    for mode_label in modes:
+        if mode_label in difficulty_to_length_map:
+            configs_for_modes.append((mode_label, difficulty_to_length_map[mode_label]))
+        else:
+            print(f"Warning: Mode '{mode_label}' not found in difficulty_to_length_map. Skipping.")
+    
+    if not configs_for_modes:
+        print("No valid modes selected for evaluation. Exiting.")
+        return
+
+    async def evaluate_single_mode(client, mode_label: str, target_len: int, agent_for_mode: ReActAgent, boxes_for_mode: int) -> dict:
+        """Generates instances for a mode, runs episodes in parallel, and returns results for that mode."""
+        print(f"  Starting evaluation for mode: {mode_label} (target_len: {target_len}) for model {model_name}...")
+        snapshots = []
+        seed = 0
+        # Generate 3 instances for this mode
+        while len(snapshots) < 3:
+            room_struct, room_state, _, _ = generate_room(
+                dim=(5, 5), initial_seed=seed, num_boxes=1, search_depth=max(10, target_len + 2)
+            )
+            path = get_shortest_action_path(room_struct, room_state, MAX_DEPTH=20)
+            if len(path) == target_len:
+                snapshots.append({
+                    "dim_room": (5, 5),
+                    "room_fixed": room_struct.tolist(),
+                    "room_state": room_state.tolist(),
+                    "boxes_on_target": 0,
+                    "max_steps": 20,
+                    "num_boxes": 1,
+                })
+            seed += 1
+        
+        episode_tasks = [run_service_episode(client, agent_for_mode, snap, boxes_for_mode) for snap in snapshots]
+        solved_statuses = await asyncio.gather(*episode_tasks)
+        num_solved = sum(solved_statuses)
+        num_instances = len(snapshots)
+        rate = num_solved / num_instances if num_instances > 0 else 0.0
+        print(f"    Completed mode: {mode_label} for model {model_name} - Solved: {num_solved}/{num_instances} ({rate:.0%})")
+        return {
+            "Difficulty": mode_label,
+            "Solved": f"{num_solved}/{num_instances}",
+            "Success Rate": f"{rate:.0%}"
+        }
+
+    all_mode_results_list = []
     async with AsyncClient(base_url="http://localhost:8000") as client:
-        for label, target_len in configs:
-            # Generate snapshots matching target length
-            snapshots = []
-            seed = 0
-            while len(snapshots) < 3:
-                room_struct, room_state, _, _ = generate_room(
-                    dim=(5, 5), initial_seed=seed, num_boxes=1, search_depth=max(10, target_len + 2)
-                )
-                path = get_shortest_action_path(room_struct, room_state, MAX_DEPTH=20)
-                if len(path) == target_len:
-                    # Convert numpy arrays to lists for JSON serialization
-                    snapshots.append({
-                        "dim_room": (5, 5),
-                        "room_fixed": room_struct.tolist(),
-                        "room_state": room_state.tolist(),
-                        "boxes_on_target": 0,
-                        "max_steps": 20,
-                        "num_boxes": 1,
-                    })
-                seed += 1
-            # Run episodes in parallel
-            tasks = [run_service_episode(client, agent, snap, total_boxes) for snap in snapshots]
-            solved = await asyncio.gather(*tasks)
-            num_solved = sum(solved)
-            rate = num_solved / len(solved)
-            table_rows.append([label, f"{num_solved}/{len(solved)}", f"{rate:.0%}"])
+        mode_evaluation_tasks = []
+        for mode_label, target_len in configs_for_modes:
+            # Create a new agent instance for each mode to ensure isolated history, if ReActAgent maintains state
+            # If ReActAgent is stateless or history is reset per decide call, this might not be strictly necessary
+            # but it is safer for parallel execution if there's any doubt.
+            llm_for_mode = LM(model_name=model_name, formatting_model_name=formatting_model_name, temperature=0.0)
+            agent_for_mode = ReActAgent(llm_for_mode)
+            mode_evaluation_tasks.append(evaluate_single_mode(client, mode_label, target_len, agent_for_mode, total_boxes))
+        
+        # Run evaluations for all modes in parallel
+        all_mode_results_list = await asyncio.gather(*mode_evaluation_tasks)
 
-    # Print aggregated results
-    print(f"Model: {llm.model_name}, System: {agent.system_name}")
+    # Sort results by the original order in modes (optional, but good for consistent table output)
+    # This requires knowing the original order. If gather changes it, we might need to re-sort.
+    # For now, let's assume gather maintains order or sort based on a predefined difficulty order.
+    # To simplify, we'll use the order from `configs_for_modes` if needed, though `all_mode_results_list` should be in order.
+    
+    # Build table_rows from the collected results
+    table_rows = []
+    for result_dict in all_mode_results_list:
+        table_rows.append([result_dict["Difficulty"], result_dict["Solved"], result_dict["Success Rate"]])
+
+    print(f"\nModel: {llm.model_name}, System: {agent.system_name}") # agent here is the one from the outer scope
     print(tabulate(table_rows, headers=["Difficulty", "Solved", "Success Rate"], tablefmt="github"))
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(eval_react_service_sokoban())
+    asyncio.run(eval_react_service_sokoban(
+        model_name="gpt-4.1-mini",
+        formatting_model_name="gpt-4.1-mini",
+        modes=["ultra-easy", "easy"],
+    ))

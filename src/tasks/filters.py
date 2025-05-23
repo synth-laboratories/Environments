@@ -1,6 +1,6 @@
 from typing import Any, Collection, Optional
 from dataclasses import dataclass
-from tasks.core import TaskInstanceMetadataFilter, TaskInstance
+from src.tasks.core import TaskInstanceMetadataFilter, TaskInstance
 
 @dataclass
 class ValueFilter(TaskInstanceMetadataFilter):

@@ -1,4 +1,4 @@
-from tasks.core import (
+from src.tasks.core import (
     Task,
     TaskInstance,
     TaskInstanceMetadata,
@@ -6,7 +6,7 @@ from tasks.core import (
     TaskInstanceSet,
 )
 from uuid import uuid4, UUID
-from tasks.core import SplitInfo, Impetus, Intent
+from src.tasks.core import SplitInfo, Impetus, Intent
 from examples.sokoban.engine_helpers.room_utils import (
     generate_room,
     get_shortest_action_path,

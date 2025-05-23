@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from typing import List, Optional, Any, Dict, Union
+import dataclasses
+
+# Import logging configuration to suppress JAX debug messages  
+from .config_logging import configure_logging, safe_compare
 
 from examples.crafter_classic.engine import (
     CrafterEngine,
@@ -12,11 +16,11 @@ from examples.crafter_classic.engine import (
     CrafterEngineSnapshot,
 )
 from examples.crafter_classic.taskset import CrafterTaskInstance
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from reproducibility.core import ReproducibleEnvironment
-from stateful.core import StatefulEnvironment
-from tasks.core import TaskInstance
-from environment.tools import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.reproducibility.core import ReproducibleEnvironment
+from src.stateful.core import StatefulEnvironment
+from src.tasks.core import TaskInstance
+from src.environment.tools import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
 from pydantic import BaseModel, Field
 
 
@@ -38,17 +42,17 @@ class CrafterInteractTool(AbstractTool):
             validated_args = self.call_schema(**call.args)
             action_to_pass = self.engine._validate_action_engine(validated_args.action)
             priv_state, pub_state = await self.engine._step_engine(action_to_pass)
-            return ToolResult(ok=True, payload={"public": pub_state.model_dump(), "private": priv_state.model_dump()})
+            return ToolResult(ok=True, payload={"public": dataclasses.asdict(pub_state), "private": dataclasses.asdict(priv_state)})
         except Exception as e:
             pub_state_on_error = self.engine._get_public_state_from_env() # Use engine helper
-            return ToolResult(ok=False, error=str(e), payload={"public": pub_state_on_error.model_dump()})
+            return ToolResult(ok=False, error=str(e), payload={"public": dataclasses.asdict(pub_state_on_error)})
 
 # Default observation callable (can be customized via __init__)
 class SynthCrafterObservationCallable(GetObservationCallable):
     async def get_observation(self, pub: CrafterPublicState, priv: CrafterPrivateState) -> InternalObservation:
         # Example: return a dictionary combining public and selected private info
         # Actual observation structure depends on agent's needs.
-        obs_dict = pub.model_dump()
+        obs_dict = dataclasses.asdict(pub)
         obs_dict["reward_last_step"] = priv.reward_last_step
         obs_dict["total_reward_episode"] = priv.total_reward_episode
         obs_dict["terminated"] = priv.terminated
@@ -126,7 +130,10 @@ class CrafterClassicEnvironment(
 
         if not isinstance(payload_dict, dict) or not tool_result.ok:
             pub_state = self.engine._get_public_state_from_env()
-            priv_state = self.engine._get_private_state_from_env(0, self.engine.env._player.health <=0, self.engine.env._step >= self.engine.env._length)
+            # Safe comparisons to avoid string vs int errors
+            health_dead = safe_compare(0, self.engine.env._player.health, ">=")
+            step_exceeded = safe_compare(self.engine.env._length, self.engine.env._step, "<=")
+            priv_state = self.engine._get_private_state_from_env(0, health_dead, step_exceeded)
             if tool_result.error: pub_state.error_info = tool_result.error
         else:
             # payload contains model_dump() outputs

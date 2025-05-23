@@ -22,10 +22,10 @@ from examples.sokoban.engine import (
     ACTION_STRING_TO_INT,
     INT_TO_ACTION_STRING,
 )
-from environment.shared_engine import GetObservationCallable, InternalObservation
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
 from examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
-from tasks.core import Impetus, Intent, TaskInstance
-from environment.tools import EnvToolCall
+from src.tasks.core import Impetus, Intent, TaskInstance
+from src.environment.tools import EnvToolCall
 from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP
 import re
 
@@ -471,10 +471,13 @@ async def test_react_agent_sokoban(tmp_path: Path):
     # else:
 
 
-async def eval_react_sokoban() -> None:
+async def eval_react_sokoban(
+    model_name: str = "gpt-4.1-nano", # Default will be overridden by caller
+    formatting_model_name: str = "gpt-4.1-nano" # Default will be overridden by caller
+) -> List[Dict[str, Any]]:
     """
-    Build 3×(ultra-easy, easy, medium) Sokoban instances, run ReAct agents (parallel per difficulty, sequential across),
-    and print aggregated success rates.
+    Run ReAct agents on Sokoban instances of different difficulties for a given model,
+    and returns a list of dictionaries containing aggregated results for each mode.
     """
     from examples.sokoban.engine_helpers.room_utils import (
         generate_room,
@@ -483,32 +486,25 @@ async def eval_react_sokoban() -> None:
     import asyncio, uuid, math
     from tabulate import tabulate  # pip install tabulate if missing
 
-    # Define model and system names to be used for this evaluation run
-    current_model_name_for_eval = (
-        "gpt-4.1-nano"  # As per user's latest change for this function's scope
-    )
+    current_model_name_for_eval = model_name # Use passed-in model name
 
-    # Instantiate a temporary LM and Agent to get the system name without hardcoding it in the print statement.
-    # This assumes LM and ReActAgent are defined/imported in the global scope of the file.
     _temp_llm_for_names = LM(
         model_name=current_model_name_for_eval,
-        formatting_model_name=current_model_name_for_eval,
+        formatting_model_name=formatting_model_name, # Use passed-in formatting model name
         temperature=0.0,
     )
     _temp_agent_for_names = ReActAgent(_temp_llm_for_names)
     actual_system_name = _temp_agent_for_names.system_name
-    # The model name for printing is simply current_model_name_for_eval
 
-    # ------------------------------------------------------------------ helpers
+    # Helper to run a single episode (remains largely the same, but uses current_model_name_for_eval)
     async def run_episode(inst) -> bool:
         """Run a single agent/instance episode and return True on success."""
         hist_cb = HistoryObservationCallable(max_history=3)
         env = SokobanEnvironment(inst, custom_step_obs=hist_cb)
         env.engine.package_sokoban_env.render_mode = "raw"
-        # Use the centrally defined model name for the LM instance in the episode
         llm_for_episode = LM(
-            model_name=current_model_name_for_eval,
-            formatting_model_name=current_model_name_for_eval,
+            model_name=current_model_name_for_eval, # Uses the model for this eval_react_sokoban call
+            formatting_model_name=formatting_model_name, # Uses the formatting model for this call
             temperature=0.0,
         )
         agent = ReActAgent(llm_for_episode)
@@ -540,7 +536,7 @@ async def eval_react_sokoban() -> None:
                 break
         return obs["private"].terminated
 
-    # ---------------------------------------------------------------- instance factory
+    # Instance factory (remains the same)
     async def make_instances(label: str, target_len: int, n: int = 3):
         instances = []
         seed = 0
@@ -576,37 +572,76 @@ async def eval_react_sokoban() -> None:
             seed += 1
         return instances
 
-    # ---------------------------------------------------------------- evaluation
+    # Evaluation logic
     configs = [("ultra-easy", 1), ("easy", 3), ("medium", 5)]
-    table_rows = []
+    results_for_this_model = [] # Store list of dicts for this model's run
+
+    print(f"\nStarting Sokoban ReAct Agent Evaluation for Model: {current_model_name_for_eval}, System: {actual_system_name}")
 
     for label, step_len in configs:
-        insts = await make_instances(label, step_len)
-        solved = await asyncio.gather(*(run_episode(i) for i in insts))
-        num_solved = sum(solved)
-        rate = num_solved / len(insts)
-        table_rows.append([label, f"{num_solved}/{len(insts)}", f"{rate:.0%}"])
+        print(f"  Processing difficulty: {label} for model {current_model_name_for_eval}...")
+        insts = await make_instances(label, step_len, n=3) # 3 instances per difficulty
+        solved_statuses = await asyncio.gather(*(run_episode(i) for i in insts))
+        num_solved = sum(solved_statuses)
+        rate = num_solved / len(insts) if insts else 0.0
+        results_for_this_model.append({
+            "Model": current_model_name_for_eval,
+            "Difficulty": label,
+            "Solved": f"{num_solved}/{len(insts)}",
+            "Success Rate": f"{rate:.0%}"
+        })
+        print(f"    Completed {label} for model {current_model_name_for_eval}: {num_solved}/{len(insts)} solved ({rate:.0%})")
 
-    # print model and system info header
-    print(f"Model: {current_model_name_for_eval}, System: {actual_system_name}")
-    # print the aggregated results table
-    print(
-        tabulate(
-            table_rows,
-            headers=["Difficulty", "Solved", "Success Rate"],
-            tablefmt="github",
-        )
-    )
+    return results_for_this_model
 
 
 if __name__ == "__main__":
-    asyncio.run(eval_react_sokoban())
-# if __name__ == "__main__":
-#     import tempfile
-#     with tempfile.TemporaryDirectory() as tmpdir:
-#         asyncio.run(
-#             test_react_agent_sokoban(Path(tmpdir))
-#         )
+    # asyncio.run(eval_react_sokoban()) # Old way of running a single model
+
+    async def run_all_sokoban_evals_parallel():
+        models_to_evaluate = [
+            {"model_name": "gpt-4.1-nano", "formatting_model_name": "gpt-4.1-nano"},
+            {"model_name": "gpt-4.1", "formatting_model_name": "gpt-4.1"},
+            {"model_name": "o4-mini", "formatting_model_name": "o4-mini"}, # Assuming o4-mini uses itself for formatting
+        ]
+
+        print("Starting parallel Sokoban evaluation for all specified models...")
+        
+        # eval_react_sokoban returns List[Dict[str, Any]]
+        # all_model_results will be a List[List[Dict[str, Any]]]
+        all_model_results = await asyncio.gather(
+            *[
+                eval_react_sokoban(
+                    model_name=model_config["model_name"],
+                    formatting_model_name=model_config["formatting_model_name"]
+                )
+                for model_config in models_to_evaluate
+            ]
+        )
+
+        print("\n=== ALL SOKOBAN EVALUATIONS COMPLETED ===")
+
+        # Flatten the list of lists into a single list of dictionaries
+        combined_sokoban_results = []
+        for model_result_list in all_model_results:
+            combined_sokoban_results.extend(model_result_list)
+
+        print("\n--- Combined Sokoban Evaluation Summary Table ---")
+        from tabulate import tabulate # Ensure tabulate is imported
+
+        if combined_sokoban_results:
+            # Headers="keys" will use the dictionary keys as headers
+            print(
+                tabulate(
+                    combined_sokoban_results,
+                    headers="keys",
+                    tablefmt="github",
+                )
+            )
+        else:
+            print("No Sokoban evaluation data to display.")
+
+    asyncio.run(run_all_sokoban_evals_parallel())
 
 # Model: o4-mini, System: sokoban-react-ex
 # | Difficulty   | Solved   | Success Rate   |

@@ -10,11 +10,11 @@ from examples.sokoban.engine import (
     SynthSokobanCheckpointObservationCallable,
     SokobanEngineSnapshot
 )
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from reproducibility.core import ReproducibleEnvironment
-from stateful.core import StatefulEnvironment
-from tasks.core import TaskInstance
-from environment.tools import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.reproducibility.core import ReproducibleEnvironment
+from src.stateful.core import StatefulEnvironment
+from src.tasks.core import TaskInstance
+from src.environment.tools import AbstractTool, EnvToolCall, ToolResult, TOOL_REGISTRY, register_tool
 
 # --- Tool Definition ---
 class SokobanActionInput(BaseModel):
@@ -124,16 +124,27 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
         tool_result: ToolResult = await self._interact_tool(agent_call)
 
         payload_dict = tool_result.payload
-        if not isinstance(payload_dict, dict):
-            # Fallback if payload isn't as expected (e.g. error during tool execution)
+        if not tool_result.ok or not isinstance(payload_dict, dict): # Check tool_result.ok
+            # Fallback if payload isn't as expected or tool reported an error
             priv_state, pub_state = self.engine.get_current_states_for_observation()
             if tool_result.error and hasattr(pub_state, 'error_info'): 
                 pub_state.error_info = tool_result.error
         else:
-            priv_state = SokobanPrivateState(**payload_dict.get("private", {}))
-            pub_state = SokobanPublicState(**payload_dict.get("public", {}))
-            if tool_result.error and hasattr(pub_state, 'error_info'):
-                pub_state.error_info = tool_result.error
+            # This block assumes tool_result.ok is True and payload is a dict
+            priv_dict = payload_dict.get("private")
+            pub_dict = payload_dict.get("public")
+
+            if priv_dict is None or pub_dict is None:
+                # This case should ideally not happen if tool_result.ok is True
+                # and the tool is well-behaved, but as a safeguard:
+                priv_state, pub_state = self.engine.get_current_states_for_observation()
+                if tool_result.error and hasattr(pub_state, 'error_info'): # Apply error even in this sub-optimal case
+                     pub_state.error_info = tool_result.error
+            else:
+                priv_state = SokobanPrivateState(**priv_dict)
+                pub_state = SokobanPublicState(**pub_dict)
+                if tool_result.error and hasattr(pub_state, 'error_info'):
+                    pub_state.error_info = tool_result.error
         
         return await self._to_observation(priv_state, pub_state, self.custom_step_observation_callable)
 
@@ -165,7 +176,7 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
 
     @classmethod
     async def _deserialize_engine(cls, snapshot: SokobanEngineSnapshot, task_instance: TaskInstance) -> "SokobanEnvironment": # Changed type hint
-        eng = await SokobanEngine._deserialize_engine(snapshot, task_instance)
+        eng = await SokobanEngine._deserialize_engine(snapshot)
         env = cls(task_instance) # Uses task_instance from deserialized engine
         env.engine = eng
         return env

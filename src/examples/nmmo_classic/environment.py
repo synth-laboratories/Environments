@@ -15,11 +15,11 @@ from examples.nmmo_classic.engine import (
     NMMO3PublicState,
     NMMO3PrivateState,
 )
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from stateful.core import StatefulEnvironment
-from reproducibility.core import ReproducibleEnvironment
-from environment.tools import EnvToolCall
-from tasks.core import TaskInstance
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.stateful.core import StatefulEnvironment
+from src.reproducibility.core import ReproducibleEnvironment
+from src.environment.tools import EnvToolCall
+from src.tasks.core import TaskInstance
 
 
 class NMMO3Environment(StatefulEnvironment, ReproducibleEnvironment[NMMO3Engine]):

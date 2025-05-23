@@ -24,10 +24,10 @@ import nmmo  # pip install pufferlib[nmmo]
 import pufferlib.emulation as pe
 from pufferlib.emulation import PufferEnv
 
-from stateful.engine import StatefulEngine, StatefulEngineSnapshot
-from reproducibility.core import IReproducibleEngine
-from environment.shared_engine import GetObservationCallable, InternalObservation
-from tasks.core import TaskInstance
+from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from src.reproducibility.core import IReproducibleEngine
+from src.environment.shared_engine import GetObservationCallable, InternalObservation
+from src.tasks.core import TaskInstance
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
