@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Any, Dict
 
-from examples.nmmo_classic.engine import (
+from src.examples.nmmo_classic.engine import (
     NMMO3Engine,
     NMMO3ObservationCallable,
     NMMO3PublicState,

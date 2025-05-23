@@ -15,16 +15,23 @@ is broken this test will fail.
 from __future__ import annotations
 import asyncio, random, uuid, pytest
 
-from examples.nmmo_classic.engine import NMMO3Engine
-from examples.nmmo_classic.state import NMMO3PublicState
-from examples.nmmo_classic.taskset import (
+from src.examples.nmmo_classic.engine import NMMO3Engine
+from src.examples.nmmo_classic.state import NMMO3PublicState
+from src.examples.nmmo_classic.taskset import (
     NMMO3TaskInstance,
     NMMO3TaskInstanceMetadata,
 )
 from src.tasks.core import Impetus, Intent
 
-# we reuse the small ACTION_TEMPLATES Dict from test_synth_react
-from examples.nmmo_classic.test_synth_react import ACTION_TEMPLATES
+# Action templates for testing - simplified set for deterministic testing
+ACTION_TEMPLATES = {
+    "move_north": {"Move": {"direction": 0}},
+    "move_south": {"Move": {"direction": 1}},
+    "move_west": {"Move": {"direction": 2}},
+    "move_east": {"Move": {"direction": 3}},
+    "attack_melee": {"Attack": {"style": 0, "target": 0}},
+    "noop": {},  # empty Dict = no-op
+}
 
 
 @pytest.mark.asyncio
@@ -36,7 +43,7 @@ async def test_snapshot_roundtrip():
     meta = NMMO3TaskInstanceMetadata(
         difficulty="easy",
         seed=seed,
-        map_size=64,
+        map_size=256,
         season="summer",
         resource_density=0.0,
         water_pct=0.0,
@@ -51,7 +58,6 @@ async def test_snapshot_roundtrip():
         metadata=meta,
         is_reproducible=True,
         initial_engine_snapshot=None,
-        config={"seed": seed, "map_size": 64, "tick_limit": 200},
     )
 
     eng1 = NMMO3Engine(inst)

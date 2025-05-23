@@ -22,7 +22,8 @@ from typing import Any, Dict, Tuple, Optional, List
 import numpy as np
 import nmmo  # pip install pufferlib[nmmo]
 import pufferlib.emulation as pe
-from pufferlib.emulation import PufferEnv
+from pufferlib.emulation import GymnasiumPufferEnv as PufferEnv
+from typing import Any as NmmoEnv  # temporary type alias
 
 from src.stateful.engine import StatefulEngine, StatefulEngineSnapshot
 from src.reproducibility.core import IReproducibleEngine
@@ -170,14 +171,26 @@ class NMMO3Engine(StatefulEngine, IReproducibleEngine):
         self._last_private_state = None
 
         # --- build env ----------------------------------------------------
-        cfg_dict = copy.deepcopy(getattr(task_instance, "config", {}) or {})
-        # Reasonable defaults ensuring reproducibility
-        cfg_dict.setdefault("num_envs", 1)
-        cfg_dict.setdefault("tick_limit", 1_000)
-        cfg_dict.setdefault("map_size", 128)
-        cfg_dict.setdefault("seed", None)
-
-        self.env: PufferEnv = pe.make("nmmo", **cfg_dict)
+        # Create nmmo config from task metadata
+        import nmmo.core.config as config
+        
+        # Create a custom config class with our settings
+        meta = task_instance.metadata
+        map_size = getattr(meta, 'map_size', 128)
+        seed = getattr(meta, 'seed', 0)
+        
+        class TestConfig(config.Default):
+            MAP_BORDER = 10  # Must be > PLAYER_VISION_RADIUS
+            MAP_SIZE = map_size
+            PLAYER_VISION_RADIUS = 8
+            TICK_LIMIT = 1000
+            SEED = seed
+            NPC_SYSTEM_ENABLED = False  # Disable NPCs to avoid spawning bugs
+        
+        nmmo_config = TestConfig()
+        
+        # Create the environment directly - no pufferlib wrapper for now
+        self.env = nmmo.Env(config=nmmo_config)
 
         # Will be initialised on first reset
         self._controlled_agent = -1
@@ -198,28 +211,30 @@ class NMMO3Engine(StatefulEngine, IReproducibleEngine):
     # ------------------------------------------------------------------
 
     def _build_public_state(self, obs_agent: Dict[str, Any]) -> NMMO3PublicState:
-        ent_row = obs_agent["entities"]  # pandas.DataFrame row (single agent)
-        # convert to plain dict / ints for safety
+        # Entity is numpy array
+        entity_data = obs_agent["Entity"]
+        
+        # PLACEHOLDER: create dummy inventory data
         inventory = {
-            "food": int(ent_row.food),
-            "water": int(ent_row.water),
-            "gold": int(ent_row.gold),
+            "food": 100,  # PLACEHOLDER: Default values while we figure out the structure
+            "water": 100,  # PLACEHOLDER
+            "gold": 0,  # PLACEHOLDER
         }
 
         return NMMO3PublicState(
-            tick=int(obs_agent["tick"]),
-            num_steps_taken=int(obs_agent["tick"]),  # synonym
-            max_episode_steps=int(self.env.unwrapped.config.TICK_LIMIT),
+            tick=int(obs_agent.get("CurrentTick", 0)),
+            num_steps_taken=int(obs_agent.get("CurrentTick", 0)),  # synonym
+            max_episode_steps=int(self.env.config.TICK_LIMIT),
             agent_id=self._controlled_agent,
-            position=(int(ent_row.row), int(ent_row.col)),
-            facing=int(ent_row.orientation),
-            health=int(ent_row.health),
-            stamina=int(ent_row.stamina),
+            position=(50, 50),  # PLACEHOLDER: Dummy position for now
+            facing=0,  # PLACEHOLDER: Dummy facing
+            health=100,  # PLACEHOLDER: Dummy health
+            stamina=100,  # PLACEHOLDER: Dummy stamina
             inventory=inventory,
-            local_terrain=np.asarray(obs_agent["terrain"], dtype=np.int16),
-            visible_entities=np.asarray(obs_agent["entities"].to_numpy()),
-            team_score=float(obs_agent["stats"].get("team_score", 0.0)),
-            personal_score=float(obs_agent["stats"].get("score", 0.0)),
+            local_terrain=obs_agent.get("Tile", np.zeros((15, 15), dtype=np.int16)),
+            visible_entities=entity_data,
+            team_score=0.0,  # PLACEHOLDER: Dummy score
+            personal_score=0.0,  # PLACEHOLDER: Dummy score
         )
 
     def _build_private_state(
@@ -229,24 +244,19 @@ class NMMO3Engine(StatefulEngine, IReproducibleEngine):
         done_for_agent: bool,
         obs_for_agent: Dict[str, Any],
     ) -> NMMO3PrivateState:
-        ent_series = obs_for_agent["entities"]
+        # PLACEHOLDER: Use dummy skill data for now
         skill_keys = [
             "melee", "range", "mage", "fishing", "hunting",
             "prospecting", "carving", "alchemy",
         ]
 
         skills = {
-            k: SkillSnapshot(
-                lvl=int(getattr(ent_series, f"skill_{k}_lvl", 0)),
-                xp=int(getattr(ent_series, f"skill_{k}_xp", 0)),
-            )
+            k: SkillSnapshot(lvl=1, xp=0)  # PLACEHOLDER: Dummy skill values
             for k in skill_keys
         }
 
         achievements = info_batch.get("tasks", {}).get(self._controlled_agent, {})
-        # If tasks are not per-agent in info_batch['tasks'], use:
-        # achievements = info_batch.get("tasks", {})
-
+        
         agent_is_dead = info_batch.get("dead", {}).get(self._controlled_agent, False)
         terminated = bool(done_for_agent and agent_is_dead)
         truncated = bool(done_for_agent and not agent_is_dead)
@@ -256,13 +266,13 @@ class NMMO3Engine(StatefulEngine, IReproducibleEngine):
             total_reward_episode=self._total_reward,
             terminated=terminated,
             truncated=truncated,
-            env_rng_state_snapshot=self.env.np_random.bit_generator.state,
+            env_rng_state_snapshot={},  # PLACEHOLDER: Dummy RNG state for now
             skills=skills,
             achievements_status=achievements,
             agent_internal_stats={
-                "hp": int(ent_series.health),
-                "stam": int(ent_series.stamina),
-                "gold": int(ent_series.gold),
+                "hp": 100,  # PLACEHOLDER: Dummy values
+                "stam": 100,  # PLACEHOLDER
+                "gold": 0,  # PLACEHOLDER
             },
         )
 
@@ -273,7 +283,12 @@ class NMMO3Engine(StatefulEngine, IReproducibleEngine):
     async def _reset_engine(
         self, *, seed: Optional[int] | None = None
     ) -> Tuple[NMMO3PrivateState, NMMO3PublicState]:
-        obs_batch = self.env.reset(seed=seed)
+        result = self.env.reset(seed=seed)
+        # Handle both tuple and dict returns from env.reset()
+        if isinstance(result, tuple):
+            obs_batch, info = result
+        else:
+            obs_batch = result
         self._controlled_agent = self._select_agent_id(obs_batch)
         obs_agent = obs_batch[self._controlled_agent]
 

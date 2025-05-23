@@ -54,14 +54,9 @@ DIFF_BOUNDS = {
 }
 
 # terrain type ids in NMMO default config (see nmmo.lib.terrain)
-WATER_IDs = {nmmo.Terrain.WATER}
-FORAGEABLE_IDs = {
-    nmmo.Terrain.FOREST,
-    nmmo.Terrain.GRASS,
-    nmmo.Terrain.SCRUB,
-    nmmo.Terrain.RUBBLE,
-    nmmo.Terrain.OASIS,
-}
+# TODO: Update terrain constants for nmmo 2.1.2 API
+WATER_IDs = {1}  # placeholder - was nmmo.Terrain.WATER
+FORAGEABLE_IDs = {2, 3, 4, 5, 6}  # placeholder - terrain constants changed in nmmo 2.1.2
 
 
 # ──────────────────────────────────────────────────────────────
