@@ -176,6 +176,9 @@ cython_debug/
 
 *.txt
 *.md
+!README.md
+!src/examples/the_agent_company/**/README.md
+!src/examples/the_agent_company/data/tasks.md
 
 **/dataset/**
 
