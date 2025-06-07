@@ -26,6 +26,7 @@ dependencies = [
     "pyboy>=2.6.0",
     "setuptools>=80.8.0",
     "psutil>=7.0.0",
+    "bsuite>=0.3.5",
 ]
 classifiers = []
 
