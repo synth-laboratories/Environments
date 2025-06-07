@@ -26,6 +26,8 @@ Note - this repo is under extremely active development. Hic sunt dracones, if no
 [] Red (active dev)
 [] Verilog (maturing)
 
+[] Terminal-Bench (beta)
+    - Requires Python 3.13+ and the optional `terminal-bench` extra. Install with `pip install "synth-env[terminal-bench]"`.
 ...
 
 # Development

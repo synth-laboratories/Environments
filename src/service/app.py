@@ -13,6 +13,8 @@ import examples.math.environment as me
 register_environment("HendryksMath", me.HendryksMathEnv)
 import examples.verilog.environment as ve
 register_environment("Verilog", ve.VerilogEnvironment)
+import examples.terminal_bench.environment as tb
+register_environment("TerminalBench", tb.TerminalBenchEnvironment)
 
 app = FastAPI(title="Environment Service")
 

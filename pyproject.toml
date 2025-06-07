@@ -29,6 +29,9 @@ dependencies = [
 ]
 classifiers = []
 
+[project.optional-dependencies]
+terminal-bench = ['terminal-bench>=0.2.3; python_version >= "3.13"']
+
 [project.urls]
 Homepage = "https://github.com/synth-laboratories/Environments"
 
