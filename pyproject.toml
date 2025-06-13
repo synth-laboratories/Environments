@@ -1,6 +1,6 @@
 [project]
 name = "synth-env"
-version = "0.0.0.dev8"
+version = "0.0.1.dev2"
 description = ""
 authors = [{name = "Synth AI", email = "josh@usesynth.ai"}]
 license = {text = "MIT"}
@@ -14,8 +14,8 @@ dependencies = [
     "pytest-asyncio>=0.24.0",
     "numpy>=2.2.3",
     "networkx>=3.4.2",
-    "synth-ai==0.1.0.dev53",
-    "synth-sdk==0.3.1.dev21",
+    "synth-ai",
+    "synth-sdk",
     "crafter>=1.8.3",
     "fastapi>=0.115.12",
     "gym-sokoban>=0.0.6",
@@ -36,7 +36,9 @@ Homepage = "https://github.com/synth-laboratories/Environments"
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.uv.sources]
+# [tool.uv.sources]
+# synth-sdk = { path = "../synth-monorepo/synth-sdk", editable = true }
+# synth-ai = { path = "../synth-monorepo/synth-ai", editable = true }
 
 [tool.hatch.envs.default.env]
 path = ".venv"
@@ -56,3 +58,16 @@ addopts = "-v" # Keep other options minimal for now
 [tool.setuptools.packages.find]
 where = ["src"]
 # include = ["*"] # Optional: often not needed if all dirs in src are packages
+
+[tool.ty]
+src = ["src"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+follow_imports = "normal"
+namespace_packages = true
+explicit_package_bases = true

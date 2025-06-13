@@ -1,6 +1,11 @@
 # Environments
 Synthetic Environments / Long Horizon Tasks / Digital Control Agents
 
+![Coverage](https://img.shields.io/badge/coverage-42.3%25-yellow)
+![Python](https://img.shields.io/badge/python-3.11+-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Tests](https://img.shields.io/badge/tests-passing-brightgreen)
+
 # Motivation
 - We're building Environments to have key desiderata for long-horizon language agents
 - Snapshotting and reproducibility
@@ -31,7 +36,29 @@ Note - this repo is under extremely active development. Hic sunt dracones, if no
 # Development
 
 To use the Astral suite of devtools:
-package management: uv sync, uv add, uv remove
-linting: ruff format .
-type(hint) checking: uvx ty check
+- Package management: `uv sync`, `uv add`, `uv remove`
+- Linting: `ruff format .`
+- Type checking: `uvx ty check`
+
+## Testing and Coverage
+
+Run tests with coverage:
+```bash
+# Run all tests with coverage report
+pytest tests/ --cov=src --cov-report=html --cov-report=term
+
+# Run specific test files
+pytest tests/unit/test_registry.py
+
+# Run with verbose output
+pytest tests/ -v
+```
+
+Current test coverage: **42.3%**
+
+The test suite includes:
+- **Unit tests** for core components (registry, environments, engines)
+- **Integration tests** for service API endpoints
+- **Q* solver tests** for Sokoban environment
+- No AI agent demos in tests (algorithmic solving only)
 
