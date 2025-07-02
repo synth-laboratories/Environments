@@ -81,7 +81,7 @@ async def _engine_step(e, a):  # `SokobanEngine`
 
 
 async def _env_step(env, a):  # `SokobanEnvironment` (expects Move wrapper)
-    from examples.sokoban.units.test_sokoban_environment import Move
+    from synth_env.examples.sokoban.units.test_sokoban_environment import Move
 
     await env.step([[Move(a)]])
 

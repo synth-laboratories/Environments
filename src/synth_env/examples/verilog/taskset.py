@@ -75,13 +75,19 @@ class VerilogTaskInstance(TaskInstance):
                 pass  # keep original string
 
         if "impetus" in data and isinstance(data["impetus"], dict):
-            data["impetus"] = Impetus(**data["impetus"])
+            impetus_data = data["impetus"]
+            # Ensure instructions field exists with default if missing
+            if "instructions" not in impetus_data:
+                impetus_data["instructions"] = "Implement the Verilog module"
+            data["impetus"] = Impetus(**impetus_data)
 
         if "intent" in data and isinstance(data["intent"], dict):
             intent_data = data["intent"]
             if "deterministic_eval_functions" not in intent_data:
                 intent_data["deterministic_eval_functions"] = []
             # Provide default values for required fields if missing
+            if "rubric" not in intent_data:
+                intent_data["rubric"] = {"goal": "Pass all testbench tests"}
             if "gold_trajectories" not in intent_data:
                 intent_data["gold_trajectories"] = None
             if "gold_state_diff" not in intent_data:
@@ -89,7 +95,17 @@ class VerilogTaskInstance(TaskInstance):
             data["intent"] = Intent(**intent_data)
 
         if "metadata" in data and isinstance(data["metadata"], dict):
-            data["metadata"] = VerilogTaskInstanceMetadata(**data["metadata"])
+            metadata_data = data["metadata"]
+            # Ensure required fields exist with defaults if missing
+            if "problem_name" not in metadata_data:
+                metadata_data["problem_name"] = "unknown"
+            if "difficulty" not in metadata_data:
+                metadata_data["difficulty"] = "medium"
+            if "description" not in metadata_data:
+                metadata_data["description"] = "Verilog implementation task"
+            if "files_provided" not in metadata_data:
+                metadata_data["files_provided"] = []
+            data["metadata"] = VerilogTaskInstanceMetadata(**metadata_data)
 
         constructor_field_names = {f.name for f in fields(cls)}
         filtered_data = {k: v for k, v in data.items() if k in constructor_field_names}
@@ -111,7 +127,7 @@ async def create_verilog_taskset(max_instances: int = 10) -> TaskInstanceSet:
     instances = []
 
     # Limit the number of instances for faster testing
-    dataset_size = min(max_instances, len(ds))
+    dataset_size = min(max_instances, len(ds))  # type: ignore[arg-type]
 
     # Convert each dataset item to VerilogTaskInstance
     for i in range(dataset_size):
@@ -186,7 +202,7 @@ endmodule"""
     )
 
     intent = Intent(
-        rubric=f"Implement correct TopModule for {problem_id} that passes testbench verification",
+        rubric={"goal": f"Implement correct TopModule for {problem_id} that passes testbench verification"},
         gold_trajectories=None,
         gold_state_diff={},
     )

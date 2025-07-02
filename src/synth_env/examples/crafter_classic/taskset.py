@@ -87,14 +87,37 @@ class CrafterTaskInstance(TaskInstance):
                 data["id"] = UUID(str(data["id"]))
             except Exception:
                 pass
-        if "impetus" in data:
-            data["impetus"] = Impetus(**data["impetus"])
-        if "intent" in data:
+        if "impetus" in data and isinstance(data["impetus"], dict):
+            impetus_data = data["impetus"]
+            # Ensure instructions field exists with default if missing
+            if "instructions" not in impetus_data:
+                impetus_data["instructions"] = "Survive and unlock achievements"
+            data["impetus"] = Impetus(**impetus_data)
+        if "intent" in data and isinstance(data["intent"], dict):
             intent_data = data["intent"]
+            # Ensure required fields exist with defaults if missing
+            if "rubric" not in intent_data:
+                intent_data["rubric"] = {"goal": "Unlock achievements"}
+            if "gold_trajectories" not in intent_data:
+                intent_data["gold_trajectories"] = None
+            if "gold_state_diff" not in intent_data:
+                intent_data["gold_state_diff"] = {}
             intent_data["deterministic_eval_functions"] = []
             data["intent"] = Intent(**intent_data)
-        if "metadata" in data:
-            data["metadata"] = CrafterTaskInstanceMetadata(**data["metadata"])
+        if "metadata" in data and isinstance(data["metadata"], dict):
+            metadata_data = data["metadata"]
+            # Ensure required fields exist with defaults if missing
+            if "difficulty" not in metadata_data:
+                metadata_data["difficulty"] = "medium"
+            if "seed" not in metadata_data:
+                metadata_data["seed"] = 0
+            if "num_trees_radius" not in metadata_data:
+                metadata_data["num_trees_radius"] = 0
+            if "num_cows_radius" not in metadata_data:
+                metadata_data["num_cows_radius"] = 0
+            if "num_hostiles_radius" not in metadata_data:
+                metadata_data["num_hostiles_radius"] = 0
+            data["metadata"] = CrafterTaskInstanceMetadata(**metadata_data)
         keep = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in keep})
 
@@ -150,7 +173,11 @@ async def create_crafter_taskset(num_instances: int = NUM_INSTANCES) -> TaskInst
         impetus = Impetus(
             instructions=f"Survive and unlock achievements. Difficulty={difficulty}."
         )
-        intent = Intent(rubric={"goal": "Unlock as many achievements as possible."})
+        intent = Intent(
+            rubric={"goal": "Unlock as many achievements as possible."},
+            gold_trajectories=None,
+            gold_state_diff={}
+        )
         metadata = CrafterTaskInstanceMetadata(
             difficulty=difficulty,
             seed=seed,

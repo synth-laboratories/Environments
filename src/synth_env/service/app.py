@@ -26,6 +26,9 @@ register_environment("HendryksMath", me.HendryksMathEnv)
 import synth_env.examples.verilog.environment as ve
 
 register_environment("Verilog", ve.VerilogEnvironment)
+import synth_env.examples.tictactoe.environment as ttt
+
+register_environment("TicTacToe", ttt.TicTacToeEnvironment)
 
 app = FastAPI(title="Environment Service")
 
