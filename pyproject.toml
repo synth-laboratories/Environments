@@ -28,6 +28,11 @@ dependencies = [
     "psutil>=7.0.0",
     "redis>=6.2.0",
     "imageio>=2.31.0",
+    "nle>=0.9.1",
+    "matplotlib>=3.10.3",
+    "seaborn>=0.13.2",
+    "pillow>=11.2.1",
+    "minigrid>=3.0.0",
 ]
 classifiers = []
 

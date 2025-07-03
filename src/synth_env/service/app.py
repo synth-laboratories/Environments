@@ -1,7 +1,14 @@
 import sys
+import os  # Added to ensure os is available before use
+
+# Ensure local 'src' directory is on PYTHONPATH for dev installs
+# Current file: <repo>/src/synth_env/service/app.py
+# We want to add <repo>/src to sys.path (two levels up)
+_src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
 
 print(f"SYS.PATH IN APP.PY: {sys.path}")
-import os
 import logging
 
 from fastapi import FastAPI
@@ -29,6 +36,9 @@ register_environment("Verilog", ve.VerilogEnvironment)
 import synth_env.examples.tictactoe.environment as ttt
 
 register_environment("TicTacToe", ttt.TicTacToeEnvironment)
+import synth_env.examples.nethack.environment as nh
+
+register_environment("NetHack", nh.NetHackEnvironment)
 
 app = FastAPI(title="Environment Service")
 
