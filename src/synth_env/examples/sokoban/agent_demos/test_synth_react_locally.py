@@ -375,7 +375,7 @@ async def test_react_agent_sokoban(tmp_path: Path):
     )
     hist_cb = HistoryObservationCallable(max_history=3)
     env = SokobanEnvironment(inst, custom_step_obs=hist_cb)
-    env.engine.package_sokoban_env.render_mode = "raw"
+    env.engine.package_sokoban_env.render_mode = "raw"  # type: ignore[attr-defined]
 
     llm = LM(
         model_name="gpt-4.1-nano", formatting_model_name="gpt-4.1-nano", temperature=0.0
@@ -453,11 +453,9 @@ async def test_react_agent_sokoban(tmp_path: Path):
         reward_signals=[
             RewardSignal(
                 question_id="sokoban_ep",
-                run_id=agent.system_instance_id,
                 system_instance_id=agent.system_instance_id,
                 reward=1 if solved_status else 0,
-                error_message="",
-                metadata={"agent_history": agent.history},
+                annotation=json.dumps({"agent_history": agent.history}),
             )
         ],
     )
@@ -478,7 +476,7 @@ async def eval_react_sokoban(
     Run ReAct agents on Sokoban instances of different difficulties for a given model,
     and returns a list of dictionaries containing aggregated results for each mode.
     """
-    from examples.sokoban.engine_helpers.room_utils import (
+    from synth_env.examples.sokoban.engine_helpers.room_utils import (
         generate_room,
         get_shortest_action_path,
     )
@@ -500,7 +498,7 @@ async def eval_react_sokoban(
         """Run a single agent/instance episode and return True on success."""
         hist_cb = HistoryObservationCallable(max_history=3)
         env = SokobanEnvironment(inst, custom_step_obs=hist_cb)
-        env.engine.package_sokoban_env.render_mode = "raw"
+        env.engine.package_sokoban_env.render_mode = "raw"  # type: ignore[attr-defined]
         llm_for_episode = LM(
             model_name=current_model_name_for_eval,  # Uses the model for this eval_react_sokoban call
             formatting_model_name=formatting_model_name,  # Uses the formatting model for this call

@@ -181,3 +181,8 @@ cython_debug/
 
 *.db
 *.json
+
+
+old/
+
+dev/

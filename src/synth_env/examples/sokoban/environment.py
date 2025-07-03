@@ -240,7 +240,7 @@ class SokobanEnvironment(StatefulEnvironment, ReproducibleEnvironment[SokobanEng
     async def _deserialize_engine(
         cls, snapshot: SokobanEngineSnapshot, task_instance: TaskInstance
     ) -> "SokobanEnvironment":  # Changed type hint
-        eng = await SokobanEngine._deserialize_engine(snapshot)
+        eng = await SokobanEngine._deserialize_engine(snapshot, task_instance)
         env = cls(task_instance)  # Uses task_instance from deserialized engine
         env.engine = eng
         return env

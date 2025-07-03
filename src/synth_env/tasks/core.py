@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List, Callable, Set
+from typing import Optional, Dict, List, Callable, Set, Any
 from synth_env.v0_observability.history import SynthGlobalTrajectory
 from uuid import UUID
 from abc import abstractmethod
@@ -21,7 +21,7 @@ class TaskInstanceMetadata:
 
 @dataclass
 class Intent:
-    rubric: str
+    rubric: Dict[str, Any]
     gold_trajectories: Optional[SynthGlobalTrajectory]
     gold_state_diff: Dict
     deterministic_eval_functions: List[Callable] = field(default_factory=list)

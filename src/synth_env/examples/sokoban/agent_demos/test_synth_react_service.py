@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import json
 
 from httpx import AsyncClient
 
@@ -97,11 +98,9 @@ async def test_react_service_sokoban():
             reward_signals=[
                 RewardSignal(
                     question_id="sokoban_ep",
-                    run_id=agent.system_instance_id,
                     system_instance_id=agent.system_instance_id,
                     reward=1,
-                    error_message="",
-                    metadata={"agent_history": agent.history},
+                    annotation=json.dumps({"agent_history": agent.history}),
                 )
             ],
         )

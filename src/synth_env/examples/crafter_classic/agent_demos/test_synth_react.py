@@ -4,7 +4,7 @@ import uuid
 import pytest
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Deque, Set
+from typing import Dict, Any, List, Optional, Deque, Set, Union
 from pydantic import BaseModel, Field
 from collections import deque
 from synth_ai.zyk import LM
@@ -111,7 +111,7 @@ def format_obs_for_llm_from_states(
             row = []
             for dx in range(-half_view, half_view + 1):
                 x, y = px + dx, py + dy
-                if not (
+                if pub.semantic_map is None or not (
                     0 <= x < pub.semantic_map.shape[0]
                     and 0 <= y < pub.semantic_map.shape[1]
                 ):
@@ -426,7 +426,7 @@ class ReActAgent:
                         )
                         return ACTION_STRING_TO_INT["noop"]  # Fallback to noop
                 print(f"[AGENT_DEBUG] Returning action: {action_int}")
-                return action_int
+                return action_int if action_int is not None else ACTION_STRING_TO_INT["noop"]
 
             elif tool_name == "terminate":
                 print("[AGENT_DEBUG] Processing terminate tool call")
@@ -587,19 +587,10 @@ async def test_react_agent_crafter(tmp_path: Path):
         reward_signals=[
             RewardSignal(
                 question_id="crafter_ep_test",
-                run_id=agent.system_instance_id,
                 system_instance_id=agent.system_instance_id,
                 reward=1
                 if episode_completed or num_achievements > 0
-                else 0,  # Reward if completed or got any achievement
-                error_message=""
-                if episode_completed
-                else "Episode not completed as expected.",
-                metadata={
-                    "agent_history": agent.history,
-                    "achievements_unlocked": list(agent.current_achievements),
-                    "num_achievements": num_achievements,
-                },
+                else 0  # Reward if completed or got any achievement
             )
         ],
     )
@@ -613,7 +604,7 @@ async def test_react_agent_crafter(tmp_path: Path):
 async def eval_react_crafter(
     model_name: str = "gpt-4.1-nano",
     formatting_model_name: str = "gpt-4.1-nano",
-    modes: List[str] = None,
+    modes: Optional[List[str]] = None,
     n_instances_per_mode: int = 3,
 ) -> List[Dict[str, Any]]:
     """

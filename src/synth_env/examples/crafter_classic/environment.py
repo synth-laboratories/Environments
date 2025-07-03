@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import List, Optional, Any, Dict, Union
 import dataclasses
+import logging
 
 # Import logging configuration to suppress JAX debug messages
 from .config_logging import safe_compare
+
+logger = logging.getLogger(__name__)
 
 from synth_env.examples.crafter_classic.engine import (
     CrafterEngine,
@@ -53,18 +56,29 @@ class CrafterInteractTool(AbstractTool):
             return ToolResult(
                 ok=True,
                 payload={
-                    "public": dataclasses.asdict(pub_state),
-                    "private": dataclasses.asdict(priv_state),
+                    "public_state": pub_state,
+                    "private_state": priv_state,
                 },
             )
         except Exception as e:
             pub_state_on_error = (
                 self.engine._get_public_state_from_env()
             )  # Use engine helper
+            # Get a safe private state for error cases
+            health_dead = safe_compare(0, self.engine.env._player.health, ">=")
+            step_exceeded = safe_compare(
+                self.engine.env._length, self.engine.env._step, "<="
+            )
+            priv_state_on_error = self.engine._get_private_state_from_env(
+                0, health_dead, step_exceeded
+            )
             return ToolResult(
                 ok=False,
                 error=str(e),
-                payload={"public": dataclasses.asdict(pub_state_on_error)},
+                payload={
+                    "public_state": pub_state_on_error,
+                    "private_state": priv_state_on_error,
+                },
             )
 
 
@@ -75,7 +89,7 @@ class SynthCrafterObservationCallable(GetObservationCallable):
     ) -> InternalObservation:
         # Example: return a dictionary combining public and selected private info
         # Actual observation structure depends on agent's needs.
-        obs_dict = dataclasses.asdict(pub)
+        obs_dict: Dict[str, Any] = dataclasses.asdict(pub)  # type: ignore
         obs_dict["reward_last_step"] = priv.reward_last_step
         obs_dict["total_reward_episode"] = priv.total_reward_episode
         obs_dict["terminated"] = priv.terminated
@@ -169,24 +183,42 @@ class CrafterClassicEnvironment(
         pub_state: CrafterPublicState
         priv_state: CrafterPrivateState
 
-        if not isinstance(payload_dict, dict) or not tool_result.ok:
-            pub_state = self.engine._get_public_state_from_env()
-            # Safe comparisons to avoid string vs int errors
-            health_dead = safe_compare(0, self.engine.env._player.health, ">=")
-            step_exceeded = safe_compare(
-                self.engine.env._length, self.engine.env._step, "<="
-            )
-            priv_state = self.engine._get_private_state_from_env(
-                0, health_dead, step_exceeded
-            )
+        if tool_result.ok:
+            # payload contains the actual state objects from the interact tool
+            priv_state = payload_dict.get("private_state")
+            pub_state = payload_dict.get("public_state")
+            
+            # Validate we got the expected state objects
+            if not isinstance(priv_state, CrafterPrivateState) or not isinstance(pub_state, CrafterPublicState):
+                logger.error(f"Invalid state types in payload: priv={type(priv_state)}, pub={type(pub_state)}")
+                # Fall back to getting current state
+                pub_state = self.engine._get_public_state_from_env()
+                health_dead = safe_compare(0, self.engine.env._player.health, ">=")
+                step_exceeded = safe_compare(
+                    self.engine.env._length, self.engine.env._step, "<="
+                )
+                priv_state = self.engine._get_private_state_from_env(
+                    0, health_dead, step_exceeded
+                )
+                pub_state.error_info = "Invalid state types in tool result"
+        else:
+            # Tool call failed, use states from payload if available, otherwise get current state
+            priv_state = payload_dict.get("private_state")
+            pub_state = payload_dict.get("public_state")
+            
+            if not isinstance(priv_state, CrafterPrivateState) or not isinstance(pub_state, CrafterPublicState):
+                # Fall back to getting current state
+                pub_state = self.engine._get_public_state_from_env()
+                health_dead = safe_compare(0, self.engine.env._player.health, ">=")
+                step_exceeded = safe_compare(
+                    self.engine.env._length, self.engine.env._step, "<="
+                )
+                priv_state = self.engine._get_private_state_from_env(
+                    0, health_dead, step_exceeded
+                )
+            
             if tool_result.error:
                 pub_state.error_info = tool_result.error
-        else:
-            # payload contains model_dump() outputs
-            priv_state = CrafterPrivateState(**payload_dict.get("private", {}))
-            pub_state = CrafterPublicState(**payload_dict.get("public", {}))
-            if tool_result.error:
-                pub_state.error_info = tool_result.error  # Should not happen if ok=True
 
         return await self._to_observation(
             priv_state, pub_state, self.custom_step_observation_callable

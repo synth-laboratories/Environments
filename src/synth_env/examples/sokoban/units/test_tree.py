@@ -16,6 +16,7 @@ import gzip
 import pickle
 import time
 import logging
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -72,7 +73,7 @@ def solved(env: SokobanEnvironment) -> bool:
 async def debug_basic_actions():
     """Debug function to test basic action execution"""
     inst = SokobanTaskInstance(
-        id="debug",
+        id=uuid.uuid4(),
         impetus=Impetus(instructions="solve"),
         intent=Intent(rubric={}, gold_trajectories=None, gold_state_diff={}),
         metadata=SokobanTaskInstanceMetadata(
@@ -301,7 +302,7 @@ async def greedy_tree_mcts_plan(
 async def test_mcts_sokoban_run(tmp_path: Path) -> None:
     # 1) build an env around the tiny 4×4 level
     inst = SokobanTaskInstance(
-        id="demo",
+        id=uuid.uuid4(),
         impetus=Impetus(instructions="solve"),
         intent=Intent(rubric={}, gold_trajectories=None, gold_state_diff={}),
         metadata=SokobanTaskInstanceMetadata(
