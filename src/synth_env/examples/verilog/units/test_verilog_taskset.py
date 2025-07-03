@@ -16,6 +16,7 @@ from synth_env.examples.verilog.taskset import (
 )
 from synth_env.tasks.core import TaskInstanceSet, SplitInfo, Impetus, Intent
 from uuid import uuid4
+from typing import cast
 
 
 class TestVerilogTaskset:
@@ -58,10 +59,11 @@ class TestVerilogTaskset:
         # Check instance properties
         instance = taskset.instances[0]
         assert isinstance(instance, VerilogTaskInstance)
-        assert instance.metadata.problem_name == "test_001"
-        assert "AND gate" in instance.metadata.description
+        metadata = cast(VerilogTaskInstanceMetadata, instance.metadata)
+        assert metadata.problem_name == "test_001"
+        assert "AND gate" in metadata.description
         assert (
-            len(instance.metadata.files_provided) == 3
+            len(metadata.files_provided) == 3
         )  # TopModule.v, testbench, RefModule.v
 
     @pytest.mark.asyncio
@@ -84,8 +86,10 @@ class TestVerilogTaskset:
 
         assert len(taskset.instances) == 5
         # Should only create instances for first 5 items
-        assert taskset.instances[0].metadata.problem_name == "test_000"
-        assert taskset.instances[4].metadata.problem_name == "test_004"
+        metadata0 = cast(VerilogTaskInstanceMetadata, taskset.instances[0].metadata)
+        metadata4 = cast(VerilogTaskInstanceMetadata, taskset.instances[4].metadata)
+        assert metadata0.problem_name == "test_000"
+        assert metadata4.problem_name == "test_004"
 
     @pytest.mark.asyncio
     @patch("src.examples.verilog.taskset.load_dataset")
@@ -127,11 +131,12 @@ class TestVerilogTaskset:
         instance = _create_hf_task_instance(item, 0)
 
         assert isinstance(instance, VerilogTaskInstance)
-        assert instance.metadata.problem_name == "Prob001_zero"
+        metadata = cast(VerilogTaskInstanceMetadata, instance.metadata)
+        assert metadata.problem_name == "Prob001_zero"
         assert "TopModule" in instance.impetus.instructions
-        assert "always outputs LOW" in instance.metadata.description
-        assert instance.metadata.difficulty == "medium"
-        assert len(instance.metadata.files_provided) == 3
+        assert "always outputs LOW" in metadata.description
+        assert metadata.difficulty == "medium"
+        assert len(metadata.files_provided) == 3
 
         # Check that files were created
         pristine_dir = Path(instance.pristine_dir)
@@ -171,7 +176,9 @@ class TestVerilogTaskset:
         # Test deserialization
         deserialized = await VerilogTaskInstance.deserialize(serialized)
         assert isinstance(deserialized, VerilogTaskInstance)
-        assert deserialized.metadata.problem_name == instance.metadata.problem_name
+        deserialized_metadata = cast(VerilogTaskInstanceMetadata, deserialized.metadata)
+        instance_metadata = cast(VerilogTaskInstanceMetadata, instance.metadata)
+        assert deserialized_metadata.problem_name == instance_metadata.problem_name
         assert deserialized.impetus.instructions == instance.impetus.instructions
 
 
@@ -210,7 +217,7 @@ class TestVerilogTaskInstance:
             id=uuid4(),
             impetus=Impetus(instructions="Test instructions"),
             intent=Intent(
-                rubric="Test goal", gold_trajectories=None, gold_state_diff={}
+                rubric={"goal": "Test goal"}, gold_trajectories=None, gold_state_diff={}
             ),
             metadata=metadata,
             is_reproducible=True,
@@ -219,7 +226,8 @@ class TestVerilogTaskInstance:
             snapshot_dir="/tmp/snapshot",
         )
 
-        assert instance.metadata.problem_name == "test"
+        metadata_check = cast(VerilogTaskInstanceMetadata, instance.metadata)
+        assert metadata_check.problem_name == "test"
         assert instance.impetus.instructions == "Test instructions"
         assert instance.intent.rubric == "Test goal"
         assert instance.pristine_dir == "/tmp/pristine"
@@ -239,7 +247,7 @@ class TestVerilogTaskInstance:
         instance = VerilogTaskInstance(
             id=uuid4(),
             impetus=Impetus(instructions="Test"),
-            intent=Intent(rubric="Test", gold_trajectories=None, gold_state_diff={}),
+            intent=Intent(rubric={"goal": "Test"}, gold_trajectories=None, gold_state_diff={}),
             metadata=metadata,
             is_reproducible=True,
             initial_engine_snapshot=None,
@@ -276,7 +284,8 @@ class TestVerilogTaskInstance:
         }
 
         instance = await VerilogTaskInstance.deserialize(data)
-        assert instance.metadata.problem_name == "test"
+        metadata_check = cast(VerilogTaskInstanceMetadata, instance.metadata)
+        assert metadata_check.problem_name == "test"
 
     @pytest.mark.asyncio
     async def test_deserialization_filters_constructor_fields(self):
@@ -296,7 +305,8 @@ class TestVerilogTaskInstance:
         }
 
         instance = await VerilogTaskInstance.deserialize(data)
-        assert instance.metadata.problem_name == "test"
+        metadata_check = cast(VerilogTaskInstanceMetadata, instance.metadata)
+        assert metadata_check.problem_name == "test"
         # Extra fields should be filtered out and not cause errors
 
 
@@ -386,9 +396,10 @@ class TestTasksetIntegration:
 
         # Verify first instance (zero module)
         zero_instance = taskset.instances[0]
-        assert zero_instance.metadata.problem_name == "Prob001_zero"
+        zero_metadata = cast(VerilogTaskInstanceMetadata, zero_instance.metadata)
+        assert zero_metadata.problem_name == "Prob001_zero"
         assert "output zero" in zero_instance.impetus.instructions
-        assert "always outputs a LOW" in zero_instance.metadata.description
+        assert "always outputs a LOW" in zero_metadata.description
 
         # Check files were created properly
         pristine_dir = Path(zero_instance.pristine_dir)
@@ -409,7 +420,8 @@ class TestTasksetIntegration:
 
         # Verify second instance (AND gate)
         and_instance = taskset.instances[1]
-        assert and_instance.metadata.problem_name == "Prob002_and_gate"
+        and_metadata = cast(VerilogTaskInstanceMetadata, and_instance.metadata)
+        assert and_metadata.problem_name == "Prob002_and_gate"
         assert "AND gate" in and_instance.impetus.instructions
 
         # Test serialization of entire taskset

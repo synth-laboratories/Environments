@@ -108,7 +108,7 @@ class CrafterObservationCallable(GetObservationCallable):
     async def get_observation(
         self, pub: CrafterPublicState, priv: CrafterPrivateState
     ) -> InternalObservation:  # type: ignore[override]
-        return {
+        observation: Dict[str, Any] = {
             "inventory": pub.inventory,
             "achievements": pub.achievements_status,
             "player_pos": pub.player_position,
@@ -118,6 +118,7 @@ class CrafterObservationCallable(GetObservationCallable):
             "terminated": priv.terminated,
             "truncated": priv.truncated,
         }
+        return observation  # type: ignore[return-value]
 
 
 # -----------------------------------------------------------------------------
@@ -170,7 +171,7 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
             action = CRAFTER_ACTION_MAP.get(action, 0)
         if not isinstance(action, int):
             return 0
-        return int(np.clip(action, 0, len(crafter.constants.actions) - 1))
+        return int(np.clip(action, 0, len(crafter.constants.actions) - 1))  # type: ignore
 
     # ────────────────────────────────────────────────────────────────────────
     # Core StatefulEngine API

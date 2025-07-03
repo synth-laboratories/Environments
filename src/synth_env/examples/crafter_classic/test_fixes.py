@@ -15,7 +15,7 @@ def test_logging_configuration():
     print("Testing logging configuration...")
 
     # Import configuration to trigger setup
-    from examples.crafter_classic.config_logging import configure_logging, safe_compare
+    from synth_env.examples.crafter_classic.config_logging import configure_logging, safe_compare
 
     configure_logging()
 
@@ -75,7 +75,7 @@ def test_comparison_safety():
     """Test that the comparison safety fixes work."""
     print("\nTesting comparison safety...")
 
-    from examples.crafter_classic.config_logging import safe_compare
+    from synth_env.examples.crafter_classic.config_logging import safe_compare
 
     # Test cases that would previously fail
     test_cases = [

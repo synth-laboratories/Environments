@@ -6,6 +6,9 @@ Synthetic Environments / Long Horizon Tasks / Digital Control Agents
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Tests](https://img.shields.io/badge/tests-passing-brightgreen)
 
+uvicorn src.synth_env.service.app:app --reload --port 8000
+uv run python src/synth_env/examples/nethack/agent_demos/test_synth_react.py
+
 # Motivation
 - We're building Environments to have key desiderata for long-horizon language agents
 - Snapshotting and reproducibility

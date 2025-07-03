@@ -139,7 +139,7 @@ class VerilogObservationCallable(GetObservationCallable):
                 compile_status = f"Last compile: Failed\n{pub.last_compile_output}"
 
         simulate_status = ""
-        if pub.last_simulate_output is not None:
+        if pub.last_simulate_output:
             # Use same success detection logic as in engine
             stdout = pub.last_simulate_output
             passed = (
@@ -151,7 +151,7 @@ class VerilogObservationCallable(GetObservationCallable):
             )
             simulate_status = f"Last simulation: {'Passed' if passed else 'Failed'}"
 
-        return {
+        observation: Dict[str, Any] = {
             "files": pub.files,
             "build_dir": pub.build_dir,
             "files_summary": files_summary,
@@ -162,6 +162,7 @@ class VerilogObservationCallable(GetObservationCallable):
             "compile_status": compile_status,
             "simulate_status": simulate_status,
         }
+        return observation  # type: ignore[return-value]
 
 
 class VerilogEnvironment(StatefulEnvironment):

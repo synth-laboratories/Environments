@@ -1,6 +1,6 @@
 [project]
 name = "synth-env"
-version = "0.0.1.dev2"
+version = "0.0.1.dev3"
 description = ""
 authors = [{name = "Synth AI", email = "josh@usesynth.ai"}]
 license = {text = "MIT"}
@@ -26,6 +26,13 @@ dependencies = [
     "pyboy>=2.6.0",
     "setuptools>=80.8.0",
     "psutil>=7.0.0",
+    "redis>=6.2.0",
+    "imageio>=2.31.0",
+    "nle>=0.9.1",
+    "matplotlib>=3.10.3",
+    "seaborn>=0.13.2",
+    "pillow>=11.2.1",
+    "minigrid>=3.0.0",
 ]
 classifiers = []
 

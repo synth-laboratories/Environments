@@ -1,8 +1,9 @@
 import asyncio
+
 import uuid
 import pytest
 import warnings
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, cast
 from pydantic import BaseModel, Field
 
 # Suppress multiprocessing resource tracker warnings
@@ -11,6 +12,7 @@ warnings.filterwarnings("ignore", message=".*leaked semaphore.*", category=UserW
 from synth_env.examples.verilog.environment import VerilogEnvironment
 from synth_env.examples.verilog.taskset import (
     VerilogTaskInstance,
+    VerilogTaskInstanceMetadata,
     create_verilog_taskset,
 )
 from synth_env.environment.tools import EnvToolCall
@@ -257,7 +259,8 @@ async def run_verilog_episode(
 ) -> bool:
     """Run a single episode with the Verilog environment and agent."""
 
-    task_name = task_instance.metadata.problem_name
+    metadata = cast(VerilogTaskInstanceMetadata, task_instance.metadata)
+    task_name = metadata.problem_name
     if debug:
         print(f"[DEBUG] Starting episode for task: {task_name}")
 
@@ -382,7 +385,8 @@ async def eval_verilog_react(
     all_results = []
 
     for task_instance in taskset.instances:
-        task_name = task_instance.metadata.problem_name
+        metadata = cast(VerilogTaskInstanceMetadata, task_instance.metadata)
+        task_name = metadata.problem_name
         print(f"\nRunning task: {task_name}")
 
         # Run n_instances of this task
@@ -403,7 +407,7 @@ async def eval_verilog_react(
         all_results.append(
             {
                 "task": task_name,
-                "difficulty": task_instance.metadata.difficulty,
+                "difficulty": metadata.difficulty,
                 "success_count": success_count,
                 "total_instances": len(task_results),
                 "success_rate": success_rate,
@@ -443,7 +447,8 @@ async def test_verilog_react_agent():
     # Run episode
     success = await run_verilog_episode(task_instance, "gpt-4.1-nano")
 
-    print(f"Task: {task_instance.metadata.problem_name}")
+    metadata = cast(VerilogTaskInstanceMetadata, task_instance.metadata)
+    print(f"Task: {metadata.problem_name}")
     print(f"Success: {success}")
 
     # For testing, we'll allow failure since this is a basic implementation

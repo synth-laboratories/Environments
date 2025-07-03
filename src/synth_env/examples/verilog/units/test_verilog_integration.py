@@ -10,9 +10,11 @@ from synth_env.examples.verilog.environment import VerilogEnvironment
 from synth_env.examples.verilog.taskset import (
     create_verilog_taskset,
     _create_hf_task_instance,
+    VerilogTaskInstanceMetadata,
 )
 from synth_env.examples.verilog.engine import VerilogEngine
 from synth_env.environment.tools import EnvToolCall
+from typing import cast
 
 
 class TestVerilogIntegration:
@@ -236,8 +238,9 @@ class TestVerilogIntegration:
         instance = _create_hf_task_instance(item, 0)
 
         # Verify task creation
-        assert instance.metadata.problem_name == "direct_test"
-        assert "buffer" in instance.metadata.description
+        metadata = cast(VerilogTaskInstanceMetadata, instance.metadata)
+        assert metadata.problem_name == "direct_test"
+        assert "buffer" in metadata.description
 
         # Verify files
         pristine_dir = Path(instance.pristine_dir)
@@ -281,7 +284,8 @@ class TestVerilogSystemIntegration:
 
         # Test each instance can be used with environment
         for i, instance in enumerate(taskset.instances):
-            assert instance.metadata.problem_name == f"task_{i:03d}"
+            metadata = cast(VerilogTaskInstanceMetadata, instance.metadata)
+            assert metadata.problem_name == f"task_{i:03d}"
 
             # Quick environment test
             env = VerilogEnvironment(instance)
