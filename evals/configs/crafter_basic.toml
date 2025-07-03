@@ -1,0 +1,6 @@
+[eval]
+env = "crafter"
+model_name = "gpt-4o-mini"
+episodes = 10
+max_steps = 400
+seed = 42 
