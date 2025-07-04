@@ -144,11 +144,18 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
         self._previous_private_state_for_reward: Optional[CrafterPrivateState] = (
             None  # For stat changes
         )
+        
+        # Initialize achievements tracking
+        self.achievements_unlocked: set = set()
 
         cfg = getattr(task_instance, "config", {}) or {}
         area: Tuple[int, int] = tuple(cfg.get("area", (64, 64)))  # type: ignore[arg-type]
         length: int = int(cfg.get("length", 10000))
+        
+        # Get seed from metadata if available, otherwise fall back to config
         seed: Optional[int] = cfg.get("seed")
+        if hasattr(task_instance, "metadata") and hasattr(task_instance.metadata, "seed"):
+            seed = task_instance.metadata.seed
 
         self.env = crafter.Env(area=area, length=length, seed=seed)
         # store original seed for reproducibility
@@ -195,87 +202,85 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
         self, action: int
     ) -> Tuple[CrafterPrivateState, CrafterPublicState]:
         try:
-            print(f"[ENGINE_DEBUG] Starting step_engine with action {action}")
-            self._current_action_for_reward = action
+            # Validate action is in valid range
+            if action < 0 or action >= self.env.action_space.n:
+                raise ValueError(
+                    f"Invalid action {action}, must be in range [0, {self.env.action_space.n})"
+                )
 
-            # Store previous states for reward calculation (if components need them)
-            # Ensure these are copies if mutable
-            prev_pub_for_reward = (
-                copy.deepcopy(self._previous_public_state_for_reward)
-                if self._previous_public_state_for_reward
-                else None
-            )
-            prev_priv_for_reward = (
-                copy.deepcopy(self._previous_private_state_for_reward)
-                if self._previous_private_state_for_reward
-                else None
-            )
+            current_pub_state = self._build_public_state(self.env.render())
 
-            print(f"[ENGINE_DEBUG] About to call env.step({action})")
-            obs_img, reward, done, info = self.env.step(action)
-            print(
-                f"[ENGINE_DEBUG] env.step returned: reward={reward}, done={done}, info={info}"
-            )
+            # Step the environment
+            obs, reward, done, info = self.env.step(action)
 
-            current_pub_state = self._build_public_state(obs_img, info)
-            print(
-                f"[ENGINE_DEBUG] Built public state: steps={current_pub_state.num_steps_taken}/{current_pub_state.max_steps_episode}"
-            )
+            # Update internal state
+            self.obs = obs
+            self.done = done
+            self.info = info
+            self.last_reward = reward
 
-            reward_action_context = {
-                "id": action,
-                "previous_public_state_achievements": prev_pub_for_reward.achievements_status
-                if prev_pub_for_reward
-                else {},
-                "previous_private_state_stats": prev_priv_for_reward.player_internal_stats
-                if prev_priv_for_reward
-                else {},
-            }
-            # For CrafterPlayerStatComponent, it needs current private state, so pass that as 'state'
-            # This is tricky because private state depends on final reward. Chicken-egg.
-            # Option 1: PlayerStatComponent uses pub_state + prev_priv_state.
-            # Option 2: Have a pre-reward private state. For now, PlayerStat takes full current_priv_state after total_reward update.
-            # This means PlayerStatComponent must be careful not to double-count. Let's assume it works on diffs it computes.
+            # Step count is tracked by the crafter environment itself in self.env._step
 
-            # Calculate reward_from_stack BEFORE final private state is formed with this reward.
-            # Temporarily form a 'pre-reward' private state if needed by components.
-            # For now, pass current_pub_state to Achievement, and a dict to PlayerStat for health diff.
+            # Process achievements - check what was unlocked this step
+            new_achievements = set()
+            if "achievements" in info:
+                for achievement, status in info["achievements"].items():
+                    if status and achievement not in self.achievements_unlocked:
+                        new_achievements.add(achievement)
+                        self.achievements_unlocked.add(achievement)
 
+            # Calculate reward
+            reward_from_stack = 0
             try:
-                print("[ENGINE_DEBUG] About to calculate reward from stack")
-                # For now, just use a simple step penalty to avoid component mismatch issues
-                reward_from_stack = -0.001  # Simple step penalty
-                print(f"[ENGINE_DEBUG] Reward from stack: {reward_from_stack}")
+                if hasattr(self, "_reward_stack") and self._reward_stack:
+                    reward_from_stack = sum(self._reward_stack)
+                    self._reward_stack.clear()
             except Exception as e:
-                print(f"[ENGINE_DEBUG] Error calculating reward from stack: {e}")
-                logging.error(f"Error calculating reward from stack: {e}")
-                reward_from_stack = -0.01  # Small penalty for error
+                reward_from_stack = 0
 
-            # For PlayerStatComponent, specifically pass its required parts if it cannot use current_pub_state
-            # Example: player_stat_reward = await player_stat_comp.score(state=self._private_state_from_env(0, terminated_gym, truncated_gym), action=reward_action_context)
-            # And add it to reward_from_stack. This is getting complex. Simplify: RewardStack gets current_pub_state.
-            # Components must derive what they need or take simpler action context.
+            # Create private state
+            # Current episode reward
+            final_reward = self._total_reward + reward + reward_from_stack
+            self._total_reward = final_reward
 
-            self._total_reward += reward_from_stack
-            print(
-                f"[ENGINE_DEBUG] Creating private state with done={done}, done={done}"
-            )
-            final_priv_state = self._build_private_state(reward_from_stack, done, done)
-            print(
-                f"[ENGINE_DEBUG] Final private state: terminated={final_priv_state.terminated}, truncated={final_priv_state.truncated}"
-            )
+            # Determine proper termination reason based on game state
+            player = self.env._player  # type: ignore[attr-defined]
+            current_step = self.env._step  # type: ignore[attr-defined]
+            max_steps = self.env._length  # type: ignore[attr-defined]
+            
+            # Check if player died (health <= 0)
+            player_died = player.health <= 0
+            
+            # Check if max steps reached
+            max_steps_reached = current_step >= max_steps
+            
+            # Set termination flags properly:
+            # - terminated=True only if player actually died 
+            # - truncated=True only if episode ended due to step limit
+            if done:
+                if player_died:
+                    terminated = True
+                    truncated = False
+                elif max_steps_reached:
+                    terminated = False
+                    truncated = True
+                else:
+                    # Fallback: if done=True but unclear reason, assume timeout
+                    terminated = False
+                    truncated = True
+            else:
+                terminated = False
+                truncated = False
+
+            final_priv_state = self._build_private_state(final_reward, terminated, truncated)
 
             self._previous_public_state_for_reward = current_pub_state
-            self._previous_private_state_for_reward = (
-                final_priv_state  # Store the one with latest rewards
-            )
+            self._previous_private_state_for_reward = final_priv_state
 
             return final_priv_state, current_pub_state
 
         except Exception as e:
-            print(f"[ENGINE_DEBUG] Exception in step_engine: {e}")
-            logging.error(f"Error in step engine: {e}")
-            # Return safe default states
+            # Create error state
             error_pub_state = self._get_public_state_from_env()
             error_pub_state.error_info = f"Step engine error: {e}"
             error_priv_state = self._get_private_state_from_env(

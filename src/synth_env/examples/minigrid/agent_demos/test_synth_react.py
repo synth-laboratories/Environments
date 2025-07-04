@@ -7,11 +7,18 @@ import os
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
+import uuid
 
+# Import SynthAI LM and BaseTool
 from synth_ai.zyk import LM
-# from synth_sdk.tracing.decorators import trace_event_async
-from synth_env.examples.minigrid.environment import MiniGridEnvironment
-from synth_env.examples.minigrid.taskset import create_minigrid_taskset, DEFAULT_MINIGRID_TASK
+from synth_ai.zyk.lms.tools.base import BaseTool
+from synth_sdk.tracing.decorators import trace_event_async
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from environment import MiniGridEnvironment
+from taskset import create_minigrid_taskset, DEFAULT_MINIGRID_TASK
 from synth_env.environment.tools import EnvToolCall
 
 
@@ -31,58 +38,41 @@ class TerminateArgs(BaseModel):
     reason: str = Field(description="Reason for termination")
 
 
+# --- Tool Definitions ---
+
+class MiniGridActTool(BaseTool):
+    """Tool for performing an action in MiniGrid."""
+    name: str = "minigrid_act"
+    arguments: type[BaseModel] = MiniGridActArgs
+    description: str = (
+        "Perform an action in the MiniGrid environment."
+    )
+
+
+class TerminateTool(BaseTool):
+    """Tool to terminate the episode."""
+    name: str = "terminate"
+    arguments: type[BaseModel] = TerminateArgs
+    description: str = "End the episode when finished or no progress can be made."
+
+
 # --- ReAct Agent ---
 class MiniGridReActAgent:
     """ReAct agent for MiniGrid environments."""
     
-    def __init__(self, llm: LM, max_turns: int = 30, verbose: bool = True):
+    def __init__(self, llm: LM, max_turns: int = 30, verbose: bool = False):
         self.llm = llm
         self.max_turns = max_turns
         self.verbose = verbose
         self.history = []
         self.debug_log = []  # Store all prompts and responses for debugging
+        self.system_name: str = "minigrid-react-agent"  # Required for synth-sdk tracing
+        self.system_instance_id: str = str(uuid.uuid4())  # Required for synth-sdk tracing
         
-        # Define tools for the agent
+        # Available tools
         self.tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "minigrid_act",
-                    "description": "Perform an action in the MiniGrid environment",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "action": {
-                                "type": "string",
-                                "enum": ["left", "right", "forward", "pickup", "drop", "toggle", "done"],
-                                "description": "The action to take"
-                            },
-                            "reasoning": {
-                                "type": "string",
-                                "description": "Why you chose this action"
-                            }
-                        },
-                        "required": ["action", "reasoning"]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "terminate",
-                    "description": "End the episode when the goal is reached or you want to give up",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "reason": {
-                                "type": "string",
-                                "description": "Why you are terminating"
-                            }
-                        },
-                        "required": ["reason"]
-                    }
-                }
-            }
+            MiniGridActTool(),
+            TerminateTool()
         ]
     
     def _format_observation(self, obs: Dict[str, Any]) -> str:
@@ -103,7 +93,7 @@ class MiniGridReActAgent:
         
         return "\n".join(parts)
     
-    # @trace_event_async(event_type="minigrid_react_decide")
+    @trace_event_async(event_type="minigrid_react_decide")
     async def decide(self, obs: str, task_description: str, turn: int) -> Dict[str, Any]:
         """Get LLM decision for next action."""
         system_message = f"""You are playing a MiniGrid environment. {task_description}
@@ -205,21 +195,25 @@ CRITICAL UNDERSTANDING OF THE GRID:
         # Debug: Print response type
         if self.verbose:
             print(f"DEBUG: LLM response type: {type(response)}")
+            print(f"DEBUG: LLM response full: {response}")
             if hasattr(response, "tool_calls"):
                 print(f"DEBUG: Tool calls: {response.tool_calls}")
+                if response.tool_calls:
+                    print(f"DEBUG: First tool call: {response.tool_calls[0]}")
+                    print(f"DEBUG: First tool call type: {type(response.tool_calls[0])}")
             if hasattr(response, "content"):
                 print(f"DEBUG: Response content: {response.content}")
         
-        # Parse tool calls
+        # Parse tool calls - fail fast, no defensive programming
         if hasattr(response, "tool_calls") and response.tool_calls:
             tool_call = response.tool_calls[0]
             # Handle different response formats
             if isinstance(tool_call, dict):
                 # Dict format from LLM
-                func = tool_call.get("function", {})
+                func = tool_call["function"]
                 action = {
-                    "name": func.get("name", "minigrid_act"),
-                    "parameters": json.loads(func.get("arguments", "{}"))
+                    "name": func["name"],
+                    "parameters": json.loads(func["arguments"])
                 }
             elif hasattr(tool_call, "function"):
                 # Object format
@@ -228,18 +222,11 @@ CRITICAL UNDERSTANDING OF THE GRID:
                     "parameters": json.loads(tool_call.function.arguments)
                 }
             else:
-                # Unexpected format - log and fallback
-                print(f"DEBUG: Unexpected tool_call format: {tool_call}")
-                action = {
-                    "name": "minigrid_act",
-                    "parameters": {"action": "forward", "reasoning": "Tool call parsing failed"}
-                }
+                # Unexpected format - fail fast
+                raise ValueError(f"Unexpected tool_call format: {tool_call}")
         else:
-            # Fallback to exploring if no tool call
-            action = {
-                "name": "minigrid_act",
-                "parameters": {"action": "forward", "reasoning": "No tool call returned, exploring"}
-            }
+            # No tool call - fail fast
+            raise ValueError("No tool call returned from LLM")
         
         # Log the parsed action
         action_entry = {
@@ -252,7 +239,7 @@ CRITICAL UNDERSTANDING OF THE GRID:
         
         return action
     
-    # @trace_event_async(event_type="minigrid_react_episode")
+    @trace_event_async(event_type="minigrid_react_episode")
     async def run_episode(self, env: MiniGridEnvironment) -> Dict[str, Any]:
         """Run one episode in the environment."""
         # Initialize
@@ -334,8 +321,8 @@ CRITICAL UNDERSTANDING OF THE GRID:
             
             # Track history with result
             action_taken = action["parameters"]["action"]
-            action_reasoning = action["parameters"].get("reasoning", "No reasoning given")
-            action_result = obs.get("last_action_result", "unknown")
+            action_reasoning = action["parameters"]["reasoning"]
+            action_result = obs["last_action_result"]
             
             # Extract position info if available
             position_info = ""
@@ -350,10 +337,8 @@ CRITICAL UNDERSTANDING OF THE GRID:
             self.history.append(history_entry)
             
             # Update metrics
-            if "total_reward" in obs:
-                total_reward = obs["total_reward"]
-            if "reward_last" in obs:
-                last_reward = obs["reward_last"]
+            total_reward = obs["total_reward"]
+            last_reward = obs["reward_last"]
             
             if self.verbose:
                 print(f"Reward: {last_reward:.3f} (Total: {total_reward:.3f})")
@@ -366,8 +351,8 @@ CRITICAL UNDERSTANDING OF THE GRID:
                             break
             
             # Check if terminated
-            if obs.get("terminated", False):
-                success = obs.get("success", False) or "goal" in str(obs).lower()
+            if obs["terminated"]:
+                success = obs["success"] or "goal" in str(obs).lower()
                 if self.verbose:
                     print(f"\nEpisode ended! Success: {success}, Final Reward: {total_reward:.3f}")
                 break
@@ -381,8 +366,8 @@ CRITICAL UNDERSTANDING OF THE GRID:
             "success": success,
             "turns": turn + 1,
             "total_reward": total_reward,
-            "final_position": final_obs.get("final_position"),
-            "total_steps": final_obs.get("total_steps", turn + 1),
+            "final_position": final_obs["final_position"],
+            "total_steps": final_obs["total_steps"],
             "debug_log_entries": len(self.debug_log),
             "timestamp": datetime.now().isoformat()
         }
@@ -392,14 +377,14 @@ CRITICAL UNDERSTANDING OF THE GRID:
             "success": success,
             "turns": turn + 1,
             "total_reward": total_reward,
-            "final_position": final_obs.get("final_position"),
-            "total_steps": final_obs.get("total_steps", turn + 1),
+            "final_position": final_obs["final_position"],
+            "total_steps": final_obs["total_steps"],
             "debug_log": self.debug_log,  # Include full debug log
         }
 
 
 # --- Evaluation Function ---
-# @trace_event_async(event_type="eval_minigrid_react")
+@trace_event_async(event_type="eval_minigrid_react")
 async def eval_minigrid_react(
     model_name: str = "gpt-4-mini",
     num_tasks: int = 5,

@@ -1,0 +1,3 @@
+environment_name = "AlgoTune"
+model = "claude-3-5-sonnet-20241022"
+num_episodes = 2

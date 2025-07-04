@@ -1,0 +1,5 @@
+[eval]
+env = "crafter"
+model_name = "gpt-4.1-nano"
+episodes = 2
+modes = "easy" 

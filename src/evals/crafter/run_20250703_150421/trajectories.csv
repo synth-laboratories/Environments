@@ -1,0 +1,2 @@
+Trajectory ID,Model,Difficulty,Seed,Success,Steps,Turns,Reward,Total Achievements,Easy,Medium,Hard,Avg Actions/Turn,Termination,Final Health,Achievements
+548623b6,gpt-4o-mini,easy,1000,✓,15,3,-0.015,1,1,0,0,5.0,timeout,9,collect_wood

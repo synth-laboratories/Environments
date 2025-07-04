@@ -102,7 +102,7 @@ class TerminateArgs(BaseModel):
 # --- tiny ReAct agent -------------------------------------------------- #
 class Move(EnvToolCall):
     def __init__(self, action: int):
-        self.action = action
+        super().__init__(tool="interact", args={"action": action})
 
 
 class ReActAgent:
@@ -518,7 +518,7 @@ async def eval_react_sokoban(
             act_idx = await agent.decide(prompt_obs)
             if act_idx == -1:  # agent terminated
                 break
-            obs = await env.step([[Move(act_idx)]])
+            obs = await env.step([{"tool": "interact", "args": {"action": act_idx}}])
             if "error" in obs:  # safety guard
                 return False
             agent.last_obs_dict = {

@@ -5,13 +5,14 @@ import json
 import logging
 import argparse
 from typing import Dict, Any, List, Optional, TYPE_CHECKING, cast
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from synth_ai.zyk import LM
 
 from synth_env.examples.nethack.environment import NetHackEnvironment
 from synth_env.examples.nethack.taskset import create_nethack_taskset, NetHackTaskInstanceMetadata
 from synth_env.examples.nethack.helpers import format_observation_for_llm, extract_game_context, get_actions_for_context
+from synth_ai.zyk.lms.tools.base import BaseTool
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,8 +25,37 @@ class TerminateArgs(BaseModel):
 
 class NetHackInteractArgs(BaseModel):
     """Arguments for NetHack interaction."""
-    reasoning: str  # Explain your reasoning for these actions
-    actions: List[str]  # List of actions to perform in sequence
+    reasoning: str = Field(description="Explain your reasoning for these actions")
+    actions: List[str] = Field(description="List of actions to perform in sequence")
+
+
+class NetHackInteractTool(BaseTool):
+    """Tool for interacting with NetHack environment"""
+    name: str = "nethack_interact"
+    arguments: type[BaseModel] = NetHackInteractArgs
+    description: str = (
+        "Perform one or more actions in NetHack. Use EXACT action names from the system prompt!\n"
+        "\n"
+        "VALID ACTIONS: north, south, east, west, northeast, northwest, southeast, southwest, "
+        "wait, go_up, go_down, search, open, close, inventory, pickup, drop, wear, wield, "
+        "eat, drink, read, zap, apply, throw, fire, cast, pray, look, help, quit, save, "
+        "plus menu letters (a-z) and numbers (0-9).\n"
+        "\n"
+        "CRITICAL RULES:\n"
+        "- Use exact names: 'go_up' not 'up', 'open' not 'open door'\n"
+        "- No compound actions: use ['open', 'west'] not ['open west']\n"
+        "- Combat: move INTO monsters, there is no 'fight' action\n"
+        "- Stairs: must be ON stairs (< or >) to use go_up/go_down\n"
+        "\n"
+        "Invalid actions will return helpful error messages."
+    )
+
+
+class TerminateTool(BaseTool):
+    """Tool for terminating the game"""
+    name: str = "terminate"
+    arguments: type[BaseModel] = TerminateArgs
+    description: str = "End the game when you die, complete objectives, or decide to quit"
 
 
 class NetHackReActAgent:
@@ -34,97 +64,160 @@ class NetHackReActAgent:
     def __init__(self, llm: LM, max_turns: int = 50):
         self.llm = llm
         self.max_turns = max_turns
-        self.history = []
+        self.history: List[Dict[str, Any]] = []
+        self.recent_actions: List[Dict[str, Any]] = []  # Track recent tool calls
         self.system_name = "nethack-react"
         
+        # Define tools using BaseTool classes
         self.tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "nethack_interact",
-                    "description": (
-                        "Perform one or more actions in NetHack. ALL VALID ACTIONS:\n"
-                        "\n"
-                        "MOVEMENT: north, south, east, west, northeast, northwest, southeast, southwest, wait, "
-                        "run_north, run_south, run_east, run_west, go_up, go_down\n"
-                        "\n"
-                        "EXPLORATION: search, open, close, kick, force, untrap, look, farlook, whatis\n"
-                        "\n"
-                        "INVENTORY: inventory, pickup, drop, dropall, wear, take_off, wield, unwield, "
-                        "quiver, put_on, remove, adjust\n"
-                        "\n"
-                        "ITEMS: eat, drink, read, zap, apply, invoke, rub, throw, fire, identify\n"
-                        "\n"
-                        "COMBAT: Attack by moving into a monster! Also: fire, throw, kick, zap\n"
-                        "\n"
-                        "MAGIC: cast, pray, offer, turn_undead\n"
-                        "\n"
-                        "CHARACTER: enhance, sit, pay, chat, loot, engrave, monster_ability, name, call\n"
-                        "\n"
-                        "INFORMATION: discoveries, conduct, attributes, history, version\n"
-                        "\n"
-                        "GAME: save, quit, help\n"
-                        "\n"
-                        "MENU/PROMPT: yes, no, all, none, escape, or letter keys (a-z, A-Z) or numbers (0-9)\n"
-                        "\n"
-                        "You can provide multiple actions to execute them in sequence."
-                    ),
-                    "parameters": NetHackInteractArgs.model_json_schema()
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "terminate",
-                    "description": "End the game when you die, complete objectives, or decide to quit",
-                    "parameters": TerminateArgs.model_json_schema()
-                }
-            }
+            NetHackInteractTool(),
+            TerminateTool()
         ]
         
     def _create_system_prompt(self, task_instructions: str) -> str:
         """Create the system prompt for the agent."""
-        return f"""You are an expert NetHack player. Your goal is to navigate the dungeon and complete objectives.
+        base_prompt = """You are an expert NetHack player. Your goal is to navigate the dungeon and complete objectives.
 
-{task_instructions}
+""" + task_instructions + """
 
-Strategy tips:
-1. Explore aggressively - move around to find stairs and new areas
-2. Engage monsters when safe - you need experience to level up
-3. Pick up items and gold - they provide score and achievements
-4. Search for secret doors, but don't search too much in one spot
-5. Prioritize finding stairs down to reach deeper levels
-6. Use ranged attacks (darts) when appropriate
-7. Don't just wait or search - take action!
+=== EXACT VALID ACTIONS ===
+You MUST use only these exact action names. Invalid actions will cause errors!
 
-IMPORTANT: Actions like "look", "inventory", and "help" are FREE ACTIONS that don't advance game time!
-Monsters won't act and nothing will change if you only use free actions.
-Always take TURN-CONSUMING actions like movement, combat, or "wait" to progress the game.
+MOVEMENT (consumes time):
+- north, south, east, west, northeast, northwest, southeast, southwest
+- wait (rest for one turn)
+- go_up (use stairs up), go_down (use stairs down)
+- run_north, run_south, run_east, run_west (run until something interesting)
 
-COMBAT: There is NO "fight" action! To attack a monster, simply MOVE INTO its square using
-directional commands (north, south, east, west, etc.). The game will automatically attack.
+EXPLORATION (consumes time):
+- search (for secret doors/traps)
+- open (open nearest door)
+- close (close nearest door)  
+- kick (kick something)
+- force (force a lock)
+- untrap (disarm trap)
 
-MAP SYMBOLS: @ = you, f = kitten (pet), d = dog (pet), : = newt/lizard, o = goblin, 
-$ = gold, . = floor, # = corridor, + = closed door, - = open door, < = stairs up, > = stairs down
+INVENTORY (consumes time):
+- inventory (check items - but this is actually FREE!)
+- pickup (pick up items here)
+- drop (drop items)
+- dropall (drop everything)
+- wear (put on armor)
+- take_off (remove armor)
+- wield (equip weapon)
+- unwield (unequip weapon)
+- quiver (ready ammunition)
+- put_on (wear accessories)
+- remove (take off accessories)
 
-STAIRS: You start on level 1. To descend deeper, look for ">" (stairs down). The "<" (stairs up) 
-goes back to previous levels. Use "go_down" when standing on ">" to descend!
+USING ITEMS (consumes time):
+- eat (consume food)
+- drink (drink potion - but NetHack calls this "quaff")
+- read (read scroll/book)
+- zap (use wand)
+- apply (use tool)
+- invoke (use artifact power)
+- rub (rub lamp/stone)
+- throw (throw item)
+- fire (shoot from quiver)
 
-CRITICAL: "look" does NOT advance game time! If you keep using "look", nothing will change!
-After looking once, take ACTION - move, attack, search, or at least "wait" to advance time.
+MAGIC & DIVINE (consumes time):
+- cast (cast spell)
+- pray (pray to deity)
+- offer (sacrifice at altar)
+- turn_undead (priest ability)
 
-Always think step by step:
-1. Observe the current situation (map, messages, stats)
-2. Identify immediate threats or opportunities
-3. Plan your next action
-4. Execute the action
+CHARACTER ACTIONS (consumes time):
+- enhance (improve skills)
+- sit (sit down)
+- pay (pay shopkeeper)
+- chat (talk to someone)
+- loot (search container)
+- engrave (write on ground)
 
-If you achieve your objective or die, use the terminate function."""
+FREE ACTIONS (do NOT consume time):
+- look (look around - FREE!)
+- farlook (examine specific location - FREE!)
+- whatis (identify map symbol - FREE!)
+- identify (check item details - FREE!)
+- discoveries (list known items - FREE!)
+- conduct (check game conduct - FREE!)
+- attributes (check character stats - FREE!)
+- help (show help - FREE!)
+- version (show version - FREE!)
+- history (show message history - FREE!)
+
+GAME COMMANDS:
+- save (save game)
+- quit (quit game)
+
+MENU/PROMPT RESPONSES:
+- yes, no, all, none, escape
+- Single letters: a, b, c, ..., z, A, B, C, ..., Z
+- Single numbers: 0, 1, 2, ..., 9
+
+=== CRITICAL RULES ===
+
+1. EXACT ACTION NAMES: Use only the exact names above! "go_up" not "up", "open" not "open door"
+
+2. NO COMPOUND ACTIONS: Don't use "open west" or "go to stairs". Use separate actions: ["open", "west"]
+
+3. COMBAT: NO "fight" action exists! To attack monsters, MOVE INTO them using directional moves!
+
+4. STAIRS: Must be standing ON stairs (< or >) to use go_up/go_down. Move to them first!
+
+5. FREE ACTIONS: look, inventory, help, etc. don't advance time. Use sparingly!
+
+6. DOORS: Use "open" (not "open door"). It opens the nearest door automatically.
+
+7. TIME MANAGEMENT: Every action except FREE ACTIONS consumes a turn and lets monsters act!
+
+=== MAP SYMBOLS ===
+@ = you (player)
+f = kitten (pet), d = dog (pet)
+a-z = monsters (letters are monsters!)
+$ = gold, * = gem
++ = closed door, - = horizontal open door, | = vertical open door  
+< = stairs up, > = stairs down
+. = floor, # = corridor/wall
+! = potion, ? = scroll, / = wand, = = ring, " = amulet
+[ = armor, ) = weapon, ( = tool, % = food
+^ = trap, { = fountain, } = pool
+
+=== STRATEGY ===
+1. EXPLORE: Move around systematically to map the dungeon
+2. DESCEND: Find stairs down (>) and use go_down to reach deeper levels
+3. COMBAT: Move into monsters to attack them
+4. LOOT: Pick up gold ($) and useful items
+5. SURVIVE: Monitor health, eat when hungry
+6. ACHIEVE: Try to unlock achievements through exploration and combat
+
+=== LEARNING FROM FEEDBACK ===
+- If "No stairs here to up/down" → You're not standing on stairs, move to them first
+- If "Unknown action" → You used an invalid action name, use exact names from list above
+- If nothing happens after "look" → Use a time-consuming action to advance the game
+- If "You see no objects here" → Move to explore other areas
+
+Always think step by step and use the exact action names provided above!"""
+        
+        return base_prompt
+    
+    def _update_last_action_result(self, result_message: str):
+        """Update the result of the most recent action."""
+        if self.recent_actions:
+            self.recent_actions[-1]["result"] = result_message[:100]  # Truncate long messages
     
     def _format_observation(self, obs: Dict[str, Any]) -> str:
         """Format observation for LLM."""
         # Use our formatting utility
         formatted = format_observation_for_llm(obs)
+        
+        # Add recent actions context if we have any
+        if self.recent_actions:
+            formatted += "\n\n=== RECENT ACTIONS (Last 3 turns) ==="
+            for action in self.recent_actions[-3:]:
+                formatted += f"\nTurn {action['turn']}: {action['actions']} → {action['result']}"
+            formatted += "\n=== END RECENT ACTIONS ==="
         
         # Add context information
         context = extract_game_context(obs)
@@ -167,7 +260,7 @@ If you achieve your objective or die, use the terminate function."""
                 f.write("\n\n=== USER MESSAGE (OBSERVATION) ===\n")
                 f.write(obs)
                 f.write("\n\n=== TOOLS ===\n")
-                f.write(json.dumps(self.tools, indent=2))
+                f.write(json.dumps([tool.to_openai_tool() for tool in self.tools], indent=2))
             
             # Add observation to history (limit history size)
             self.history.append({"role": "user", "content": obs})
@@ -222,6 +315,20 @@ If you achieve your objective or die, use the terminate function."""
                             args = {"reasoning": "Failed to parse arguments", "actions": ["wait"]}
                     else:
                         args = tool_args_str
+                    
+                    # Track this action for next turn's context
+                    turn_num = len(self.recent_actions) + 1
+                    action_record = {
+                        "turn": turn_num,
+                        "actions": args.get("actions", [args.get("action", "unknown")]),
+                        "reasoning": args.get("reasoning", ""),
+                        "result": "pending"  # Will be updated after execution
+                    }
+                    self.recent_actions.append(action_record)
+                    
+                    # Keep only last 3 actions
+                    if len(self.recent_actions) > 3:
+                        self.recent_actions = self.recent_actions[-3:]
                     
                     return {
                         "name": tool_name,
@@ -344,6 +451,12 @@ If you achieve your objective or die, use the terminate function."""
                         pos_before = obs.get("position", "unknown")
                         
                         obs = await env.step(act)
+                        
+                        # Update the recent action result with the message from this action
+                        result_msg = obs.get("message", "").rstrip('\x00').strip()
+                        if not result_msg:
+                            result_msg = "No message"
+                        self._update_last_action_result(result_msg)
                         
                         # Create a new record for each action
                         single_action_record = {

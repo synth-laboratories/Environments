@@ -183,23 +183,26 @@ class MiniGridEnvironment(StatefulEnvironment, ReproducibleEnvironment[MiniGridE
         else:
             raise ValueError("Invalid tool_calls format")
         
-        # Extract tool name and args
-        tool_name = tool_call.get("name", tool_call.get("tool", ""))
+        # Extract tool name and args - fail fast
+        if "tool" in tool_call:
+            tool_name = tool_call["tool"]
+        elif "name" in tool_call:
+            tool_name = tool_call["name"]
+        else:
+            raise ValueError("Tool call missing 'tool' or 'name' field")
         
-        # Handle different argument formats
-        args = {}
-        if "input" in tool_call:
-            if isinstance(tool_call["input"], str):
-                try:
-                    args = json.loads(tool_call["input"])
-                except json.JSONDecodeError:
-                    args = {"action": tool_call["input"]}
-            else:
-                args = tool_call["input"]
-        elif "args" in tool_call:
+        # Handle different argument formats - fail fast
+        if "args" in tool_call:
             args = tool_call["args"]
         elif "parameters" in tool_call:
             args = tool_call["parameters"]
+        elif "input" in tool_call:
+            if isinstance(tool_call["input"], str):
+                args = json.loads(tool_call["input"])
+            else:
+                args = tool_call["input"]
+        else:
+            raise ValueError("Tool call missing 'args', 'parameters', or 'input' field")
         
         if tool_name != "minigrid_act":
             raise ValueError(f"Unknown tool: {tool_name}. Expected 'minigrid_act'.")
@@ -219,6 +222,10 @@ class MiniGridEnvironment(StatefulEnvironment, ReproducibleEnvironment[MiniGridE
     ) -> InternalObservation:
         """Convert states to observation using callable."""
         obs = await observation_callable.get_observation(pub, priv)
+        
+        # Attach full state objects for downstream analysis (fail fast)
+        obs["public"] = pub
+        obs["private"] = priv
         
         if extra_obs:
             obs.update(extra_obs)

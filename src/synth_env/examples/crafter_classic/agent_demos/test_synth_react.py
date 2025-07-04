@@ -1,4 +1,3 @@
-
 import asyncio
 import uuid
 import pytest
@@ -7,7 +6,9 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Deque, Set, Union
 from pydantic import BaseModel, Field
 from collections import deque
+import toml
 from synth_ai.zyk import LM
+from synth_ai.zyk.lms.tools.base import BaseTool
 from synth_sdk.tracing.decorators import trace_event_async
 from synth_sdk.tracing.abstractions import RewardSignal, Dataset, TrainingQuestion
 from synth_sdk.tracing.utils import get_system_id
@@ -197,21 +198,35 @@ class CrafterHistoryObservationCallable(GetObservationCallable):
 
 # --- Pydantic Models for Tool Arguments ---
 class CrafterInteractArgs(BaseModel):
-    action_name: str = Field(
-        description="A single action name to execute in the Crafter environment (e.g., 'move_up', 'place_stone')."
+    actions_list: List[str] = Field(
+        description="A list of action names to execute in sequence in the Crafter environment (e.g., ['move_up', 'move_up', 'place_stone']). Can contain 1-10 actions."
     )
     reasoning: str = Field(
-        description="A brief explanation of why this action was chosen."
+        description="A brief explanation of why these actions were chosen."
     )
 
 
-class TerminateArgs(BaseModel):
-    reason: str = Field(
-        description="Reason for termination (e.g., 'all tasks complete', 'stuck', 'max_steps_reached')."
-    )
+# class TerminateArgs(BaseModel):
+#     reason: str = Field(
+#         description="A detailed reason for why the agent is terminating."
+#     )
 
 
 # --- ReAct agent for Crafter -------------------------------------------------- #
+class CrafterInteractTool(BaseTool):
+    """Tool for interacting with Crafter environment"""
+    name: str = "crafter_interact"
+    arguments: type[BaseModel] = CrafterInteractArgs
+    description: str = "Interacts with the Crafter environment by proposing a sequence of 1-10 actions to execute."
+
+
+# class TerminateTool(BaseTool):
+#     """Tool for terminating agent execution"""
+#     name: str = "terminate"
+#     arguments: type[BaseModel] = TerminateArgs
+#     description: str = "Terminates the agent's execution if the task is considered complete or no useful progress can be made."
+
+
 class CrafterMove(EnvToolCall):  # Simple EnvToolCall wrapper
     def __init__(self, action: int):
         super().__init__(tool="interact", args={"action": action})
@@ -230,22 +245,8 @@ class ReActAgent:
         self.current_achievements: Set[str] = set()  # To track unique achievements
 
         self.tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "crafter_interact",  # Changed tool name
-                    "description": "Interacts with the Crafter environment by proposing a single action.",
-                    "parameters": CrafterInteractArgs.model_json_schema(),
-                },
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "terminate",
-                    "description": "Terminates the agent's execution if the task is considered complete or no useful progress can be made.",
-                    "parameters": TerminateArgs.model_json_schema(),
-                },
-            },
+            CrafterInteractTool(),
+            # TerminateTool(),  # Commented out to prevent early quitting
         ]
 
     def _format_history_for_prompt(self) -> str:
@@ -267,8 +268,7 @@ class ReActAgent:
     @trace_event_async(event_type="react_agent_decide")
     async def decide(
         self, obs_str: str, current_raw_obs: Dict[str, Any]
-    ) -> int:  # obs_str is the formatted one
-        print(f"[AGENT_DEBUG] Starting decide with obs: {obs_str[:100]}...")
+    ) -> List[int]:  # Return list of action integers
         self.history.append({"type": "obs", "content": obs_str})
         self.last_obs_dict = current_raw_obs  # Store for terminate guardrail
 
@@ -282,190 +282,87 @@ class ReActAgent:
                     self.current_achievements.add(ach)
 
         formatted_prompt_history = self._format_history_for_prompt()
-        print(f"[AGENT_DEBUG] History length: {len(self.history)}")
 
         # Updated prompt for Crafter
         prompt = (
             f"{formatted_prompt_history}\n\n"
             "Based on the history above, particularly the last observation (health, inventory, achievements, position), "
-            "what is your reasoning and which tool (`crafter_interact` or `terminate`) should you call next? "
+            "what is your reasoning and which `crafter_interact` tool should you call next? "
             "Prioritize actions that lead to new achievements or ensure survival (e.g., find food if health is low)."
         )
 
         system_message = (
             "You are an agent playing Crafter. Your goal is to survive and unlock as many achievements as possible. "
             "Review the history of observations, thoughts, and actions. "
-            "Based on this history, particularly the last observation, decide on the best next action. "
-            "You MUST call one of the two available tools: `crafter_interact` or `terminate`.\\n\\n"
-            "Available actions for `crafter_interact` are: "
-            f"{', '.join(ACTION_STRING_TO_INT.keys())}.\\n"
+            "Based on this history, particularly the last observation, decide on the best sequence of actions. "
+            "You MUST call the available tool: `crafter_interact`.\\n\\n"
+            "For `crafter_interact`, provide a list of 1-10 actions to execute in sequence. "
+            "Planning ahead with multiple actions is often more efficient than single actions. "
+            f"Available actions are: {', '.join(ACTION_STRING_TO_INT.keys())}.\\n"
             "Always provide a `reasoning` field in your tool call."
         )
 
-        print(f"[AGENT_DEBUG] Calling LLM with prompt length: {len(prompt)}")
         response_obj = await self.llm.respond_async(
             system_message=system_message, user_message=prompt, tools=self.tools
         )
-        print("[AGENT_DEBUG] LLM response received")
 
-        assert response_obj.tool_calls, "Response object didn't have tool call"
-        tool_calls = None
+        tool_calls = response_obj.tool_calls
+        
+        # Handle case where tool_calls is None or empty (noop to prevent crash)
+        if not tool_calls:
+            #print(f"[WARNING] No tool calls returned by {self.llm.model_name}, returning noop action")
+            self.history.append({
+                "type": "tool_call",
+                "tool_name": "noop",
+                "tool_arguments": {"reason": "no_tool_calls_returned"},
+            })
+            self.history.append({"type": "tool_response", "content": "Noop executed due to missing tool calls"})
+            return [0]  # Return 'noop' action (action index 0)
+        
+        tool_call_data = tool_calls[0]
+        
+        # Handle both dict and object formats
+        if isinstance(tool_call_data, dict):
+            tool_name = tool_call_data["function"]["name"]
+            tool_args_str = tool_call_data["function"]["arguments"]
+        else:
+            tool_name = tool_call_data.function.name
+            tool_args_str = tool_call_data.function.arguments
+            
+        tool_arguments = json.loads(tool_args_str)
 
-        try:
-            if hasattr(response_obj, "tool_calls") and response_obj.tool_calls:
-                tool_calls = response_obj.tool_calls
-                print(f"[AGENT_DEBUG] Found {len(tool_calls)} tool calls")
-            # ... (rest of the try-except for tool call parsing, similar to Sokoban, but adapted for CrafterInteractArgs)
+        self.history.append({
+            "type": "tool_call",
+            "tool_name": tool_name,
+            "tool_arguments": tool_arguments,
+        })
+        self.history.append({"type": "tool_response", "content": "Tool executed"})
 
-            # Simplified fallback for now, can be improved
-            if not tool_calls:
-                print("[AGENT_DEBUG] No tool calls found, falling back to noop")
-                self.history.append(
-                    {
-                        "type": "tool_call",
-                        "tool_name": "crafter_interact",
-                        "tool_arguments": {
-                            "action_name": "noop",  # Fallback action
-                            "reasoning": "LLM failed to provide tool_calls, fallback to noop.",
-                        },
-                    }
-                )
-                return ACTION_STRING_TO_INT["noop"]
+        if tool_name == "crafter_interact":
+            actions_list = tool_arguments["actions_list"]
+            
+            # Convert action names to integers
+            action_ints = []
+            for action_str in actions_list:
+                if action_str in ACTION_STRING_TO_INT:
+                    action_ints.append(ACTION_STRING_TO_INT[action_str])
+                else:
+                    print(f"[WARNING] Invalid action '{action_str}', using noop instead")
+                    action_ints.append(0)  # noop action
 
-            if len(tool_calls) == 0:
-                print("[AGENT_DEBUG] Empty tool calls list, falling back to noop")
-                self.history.append(
-                    {"type": "error", "content": "LLM returned empty tool_calls list."}
-                )
-                return ACTION_STRING_TO_INT["noop"]  # noop is action 0
+            return action_ints
 
-            tool_call_data = tool_calls[0]
-            tool_name = ""
-            tool_args_str = ""
-
-            if (
-                hasattr(tool_call_data, "function")
-                and hasattr(tool_call_data.function, "name")
-                and hasattr(tool_call_data.function, "arguments")
-            ):
-                tool_name = tool_call_data.function.name
-                tool_args_str = tool_call_data.function.arguments
-            elif (
-                isinstance(tool_call_data, dict)
-                and "function" in tool_call_data
-                and isinstance(tool_call_data["function"], dict)
-            ):
-                tool_name = tool_call_data["function"].get("name")
-                tool_args_str = tool_call_data["function"].get("arguments")
-                if not isinstance(
-                    tool_args_str, str
-                ):  # Arguments might already be a dict
-                    tool_arguments_dict = tool_args_str
-                    tool_args_str = json.dumps(tool_arguments_dict)
-                else:  # Arguments are a JSON string
-                    tool_arguments_dict = json.loads(tool_args_str)
-            else:
-                print(
-                    "[AGENT_DEBUG] Unexpected tool_call structure, falling back to noop"
-                )
-                self.history.append(
-                    {"type": "error", "content": "Unexpected tool_call structure."}
-                )
-                return ACTION_STRING_TO_INT["noop"]
-
-            print(f"[AGENT_DEBUG] Tool name: {tool_name}, Args: {tool_args_str}")
-
-            if not tool_args_str:  # Should not happen if structure is correct
-                print(
-                    f"[AGENT_DEBUG] Missing arguments for tool {tool_name}, falling back to noop"
-                )
-                self.history.append(
-                    {
-                        "type": "error",
-                        "content": f"Missing arguments for tool {tool_name}. Args string: '{tool_args_str}'",
-                    }
-                )
-                return ACTION_STRING_TO_INT["noop"]
-
-            tool_arguments = json.loads(
-                tool_args_str
-            )  # tool_args_str should be a valid JSON string here
-
-            self.history.append(
-                {
-                    "type": "tool_call",
-                    "tool_name": tool_name,
-                    "tool_arguments": tool_arguments,
-                }
-            )
-
-            if tool_name == "crafter_interact":
-                print("[AGENT_DEBUG] Processing crafter_interact tool call")
-                validated_args = CrafterInteractArgs(**tool_arguments)
-                action_str = validated_args.action_name
-                action_int = ACTION_STRING_TO_INT.get(action_str.lower())
-                print(
-                    f"[AGENT_DEBUG] Action string: {action_str}, Action int: {action_int}"
-                )
-
-                if action_int is None:
-                    # Attempt to find a partial match if full match fails
-                    for valid_action in ACTION_STRING_TO_INT.keys():
-                        if action_str.lower() in valid_action:
-                            action_int = ACTION_STRING_TO_INT[valid_action]
-                            break
-                    if action_int is None:
-                        print(
-                            f"[AGENT_DEBUG] Invalid action_name: {action_str}, falling back to noop"
-                        )
-                        self.history.append(
-                            {
-                                "type": "error",
-                                "content": f"Invalid action_name: {action_str}. Falling back to noop.",
-                            }
-                        )
-                        return ACTION_STRING_TO_INT["noop"]  # Fallback to noop
-                print(f"[AGENT_DEBUG] Returning action: {action_int}")
-                return action_int if action_int is not None else ACTION_STRING_TO_INT["noop"]
-
-            elif tool_name == "terminate":
-                print("[AGENT_DEBUG] Processing terminate tool call")
-                # Basic terminate, could add guardrails like in Sokoban (e.g., check steps, health)
-                # For now, if LLM decides to terminate, we allow it.
-                # A guardrail could be: if health is critical and not many achievements, don't terminate.
-                # Or if max_steps nearly reached.
-                if self.last_obs_dict and self.last_obs_dict.get("private"):
-                    priv_state: CrafterPrivateState = self.last_obs_dict["private"]
-                    if priv_state.terminated or priv_state.truncated:
-                        # If env already terminated/truncated, agent's decision to terminate is valid.
-                        print(
-                            "[AGENT_DEBUG] Environment already terminated/truncated, returning -1"
-                        )
-                        return -1
-                    # Add custom logic: e.g. if agent wants to terminate because it thinks it's "done"
-                    # but it's not actually a terminal state by the environment.
-                    # For now, let's allow termination if the agent calls it.
-                    # Consider adding a check like: if len(self.current_achievements) < threshold etc.
-                    # print(f"Agent decided to terminate. Reason: {tool_arguments.get('reason')}")
-
-                print("[AGENT_DEBUG] Agent decided to terminate, returning -1")
-                return -1  # Signal termination to the main loop
-
-            else:
-                print(
-                    f"[AGENT_DEBUG] Unknown tool_name: {tool_name}, falling back to noop"
-                )
-                self.history.append(
-                    {"type": "error", "content": f"Unknown tool_name: {tool_name}"}
-                )
-                return ACTION_STRING_TO_INT["noop"]  # Fallback
-
-        except Exception as e:
-            # Log the exception and the problematic response_obj content if possible
-            error_content = f"Error processing LLM response: {str(e)}. Response: {str(response_obj)[:500]}"
-            print(f"[AGENT_DEBUG] Exception in decide: {error_content}")
-            self.history.append({"type": "error", "content": error_content})
-            return ACTION_STRING_TO_INT["noop"]  # Fallback
+        # elif tool_name == "terminate":
+        #     reason = tool_arguments["reason"]
+        #     
+        #     # Add the human-readable termination reason to the history
+        #     self.history.append({
+        #         "type": "termination",
+        #         "content": f"Agent terminated: {reason}",
+        #         "reason": reason
+        #     })
+        #     
+        #     return [-1]  # Special termination indicator
 
 
 # --- Test for a single agent run ---
@@ -518,25 +415,41 @@ async def test_react_agent_crafter(tmp_path: Path):
         raw_obs_for_agent_decision = obs_payload  # Pass the whole payload which includes public and private states
 
         for turn in range(agent.max_turns):
-            # print(f"Turn {turn + 1}/{agent.max_turns}")
-            # print(f"Agent input obs:\n{current_formatted_obs}")
-
-            act_idx = await agent.decide(
+            action_sequence = await agent.decide(
                 current_formatted_obs, raw_obs_for_agent_decision
             )
 
-            if act_idx == -1:  # Agent decided to terminate
-                # print("Agent decided to terminate.")
+            if action_sequence == [-1]:  # Agent decided to terminate
                 obs_payload_next = (
                     obs_payload  # No new observation if terminated by agent
                 )
                 break
 
-            step_result = await env.step([[CrafterMove(act_idx)]])
-            obs_payload_next = step_result
+            # Execute each action in the sequence
+            for act_idx in action_sequence:
+                step_result = await env.step([[CrafterMove(act_idx)]])
+                obs_payload_next = step_result
+                
+                if "error" in obs_payload_next:
+                    break
+                    
+                # Update observation for next action in sequence
+                current_formatted_obs = obs_payload_next["formatted_obs"]
+                raw_obs_for_agent_decision = obs_payload_next
+                obs_payload = obs_payload_next
+                
+                # Check if environment terminated after this sub-action
+                if (obs_payload_next["private"].terminated or 
+                    obs_payload_next["private"].truncated):
+                    priv_state = obs_payload_next["private"]
+                    pub_state = obs_payload_next["public"]
+                    player_health = priv_state.player_internal_stats.get("health", "N/A")
+                    steps_taken = pub_state.num_steps_taken
+                    max_steps = pub_state.max_steps_episode
+                    
+                    break
 
             if "error" in obs_payload_next:
-                print(f"Error during env.step: {obs_payload_next['error']}")
                 break
 
             # Update observations for the next agent decision
@@ -553,7 +466,6 @@ async def test_react_agent_crafter(tmp_path: Path):
                 obs_payload_next["private"].terminated
                 or obs_payload_next["private"].truncated
             ):
-                # print("Environment terminated or truncated.")
                 break
 
         # Ensure obs_payload_next is defined even if loop didn't run or agent terminated early
@@ -572,9 +484,6 @@ async def test_react_agent_crafter(tmp_path: Path):
         return episode_successful, len(agent.current_achievements)
 
     episode_completed, num_achievements = await run_episode()
-
-    # print(f"Episode completed: {episode_completed}, Achievements: {num_achievements}")
-    # print(f"Agent history: {json.dumps(agent.history, indent=2)}")
 
     dataset = Dataset(
         questions=[
@@ -611,6 +520,48 @@ async def eval_react_crafter(
     Run ReAct agents on Crafter instances of different difficulties,
     and returns a list of dictionaries containing aggregated results for each mode.
     """
+    # Import the new evaluation framework
+    from synth_env.examples.crafter_classic.agent_demos.eval_framework import run_crafter_eval
+    
+    if modes is None:
+        modes = ["easy", "hard"]
+    
+    print(f"🎯 Running Crafter evaluation with new standardized framework")
+    print(f"   Model: {model_name}")
+    print(f"   Modes: {modes}")
+    print(f"   Trajectories per mode: {n_instances_per_mode}")
+    
+    # Use the new comprehensive evaluation framework
+    report = await run_crafter_eval(
+        model_names=[model_name],
+        difficulties=modes,
+        num_trajectories=n_instances_per_mode,
+        max_turns=30
+    )
+    
+    # Convert to old format for backward compatibility
+    results_for_model = []
+    for agg_result in report["raw_aggregate_results"]:
+        results_for_model.append({
+            "Model": agg_result["model_name"],
+            "Difficulty": agg_result["difficulty"],
+            "Successful Runs": f"{int(agg_result['success_rate'] * agg_result['num_trajectories'])}/{agg_result['num_trajectories']}",
+            "Avg Unique Achievements": f"{agg_result['avg_achievements_per_trajectory']:.2f}",
+        })
+    
+    return results_for_model
+
+# Keep the old function for backward compatibility
+async def eval_react_crafter_legacy(
+    model_name: str = "gpt-4.1-nano",
+    formatting_model_name: str = "gpt-4.1-nano",
+    modes: Optional[List[str]] = None,
+    n_instances_per_mode: int = 3,
+) -> List[Dict[str, Any]]:
+    """
+    LEGACY VERSION - Run ReAct agents on Crafter instances of different difficulties,
+    and returns a list of dictionaries containing aggregated results for each mode.
+    """
 
     if modes is None:
         modes = ["easy", "hard"]
@@ -630,63 +581,55 @@ async def eval_react_crafter(
     # ------------------------------------------------------------------ helpers
     async def run_episode_eval(
         inst: CrafterTaskInstance, agent_max_turns: int
-    ) -> tuple[bool, int]:
-        """Run a single agent/instance episode and return (success_status, num_unique_achievements)."""
-        print(f"[DEBUG] Starting episode for instance {inst.id}")
-        hist_cb = CrafterHistoryObservationCallable(max_history=1)
-        env = CrafterClassicEnvironment(inst, custom_step_obs=hist_cb)
-
-        llm_for_episode = LM(
+    ) -> tuple[bool, int, list[str], int]:  # Added achievements list and steps taken
+        """Run single episode and return (success, num_achievements, achievements_list, steps_taken)"""
+        llm = LM(
             model_name=current_model_name_for_eval,
-            formatting_model_name=formatting_model_name,
+            formatting_model_name=current_model_name_for_eval,
             temperature=0.0,
         )
-        agent = ReActAgent(
-            llm_for_episode, max_turns=30
-        )  # Increased for meaningful progress
-        print(
-            f"[DEBUG] Created agent with max_turns=30 for model {current_model_name_for_eval}"
-        )
+        
+        hist_cb = CrafterHistoryObservationCallable(max_history=1)
+        env = CrafterClassicEnvironment(inst, custom_step_obs=hist_cb)
+        agent = ReActAgent(llm, max_turns=agent_max_turns)
 
-        print("[DEBUG] Initializing environment...")
         obs_payload = await env.initialize()
-        print(
-            f"[DEBUG] Environment initialized. Obs keys: {list(obs_payload.keys()) if isinstance(obs_payload, dict) else type(obs_payload)}"
-        )
         if "error" in obs_payload:
-            print(f"[DEBUG] ERROR during env.initialize: {obs_payload['error']}")
-            return False, 0
+            return False, 0, [], 0
 
         current_formatted_obs = obs_payload["formatted_obs"]
         raw_obs_for_agent_decision = obs_payload
-        print(f"[DEBUG] Initial formatted obs: {current_formatted_obs[:200]}...")
 
         turn_count = 0
         for turn_idx in range(agent.max_turns):
             turn_count += 1
-            print(f"[DEBUG] === Turn {turn_idx + 1}/{agent.max_turns} ===")
-            print(f"[DEBUG] Agent deciding on obs: {current_formatted_obs[:100]}...")
-
-            act_idx = await agent.decide(
+            # Remove noisy progress output
+            
+            action_sequence = await agent.decide(
                 current_formatted_obs, raw_obs_for_agent_decision
             )
-            print(f"[DEBUG] Agent decided action: {act_idx}")
 
-            if act_idx == -1:  # agent terminated
-                print(f"[DEBUG] Agent decided to terminate after {turn_count} turns")
+            if action_sequence == [-1]:  # agent terminated
                 break
 
-            print(f"[DEBUG] Stepping environment with action {act_idx}")
-            obs_payload_next = await env.step([[CrafterMove(act_idx)]])
-            print(
-                f"[DEBUG] Environment step completed. Obs keys: {list(obs_payload_next.keys()) if isinstance(obs_payload_next, dict) else type(obs_payload_next)}"
-            )
+            # Execute each action in the sequence
+            for i, act_idx in enumerate(action_sequence):
+                obs_payload_next = await env.step([[CrafterMove(act_idx)]])
+
+                if "error" in obs_payload_next:
+                    break  # Break out of action sequence on error
+                    
+                # Update observation for next action in sequence
+                current_formatted_obs = obs_payload_next["formatted_obs"]
+                raw_obs_for_agent_decision = obs_payload_next
+                
+                # Check if environment terminated after this sub-action
+                if (obs_payload_next["private"].terminated or 
+                    obs_payload_next["private"].truncated):
+                    break
 
             if "error" in obs_payload_next:
-                print(f"[DEBUG] ERROR during env.step: {obs_payload_next['error']}")
-                return False, len(
-                    agent.current_achievements
-                )  # Return current achievements even on error
+                return False, len(agent.current_achievements), list(agent.current_achievements), 0
 
             current_formatted_obs = obs_payload_next["formatted_obs"]
             raw_obs_for_agent_decision = obs_payload_next
@@ -694,33 +637,22 @@ async def eval_react_crafter(
                 {"type": "tool_response", "content": "Action executed"}
             )
 
-            print(f"[DEBUG] New formatted obs: {current_formatted_obs}...")
-
             obs_payload = obs_payload_next
             if obs_payload["private"].terminated or obs_payload["private"].truncated:
-                print(
-                    f"[DEBUG] Environment terminated/truncated after {turn_count} turns"
-                )
-                print(
-                    f"[DEBUG] Terminated: {obs_payload['private'].terminated}, Truncated: {obs_payload['private'].truncated}"
-                )
                 break
 
-        print(f"[DEBUG] Episode completed after {turn_count} turns")
         final_private_state: CrafterPrivateState = obs_payload["private"]
+        final_public_state: CrafterPublicState = obs_payload["public"]
+        
         run_successful = (
             final_private_state.terminated or final_private_state.truncated
         ) or len(agent.current_achievements) >= 1
+        
         num_unique_achievements = len(agent.current_achievements)
-        print(
-            f"[DEBUG] Episode result - successful: {run_successful}, achievements: {num_unique_achievements}"
-        )
-        print(f"[DEBUG] Agent achievements: {list(agent.current_achievements)}")
-        print(
-            f"[DEBUG] Final private state - terminated: {final_private_state.terminated}, truncated: {final_private_state.truncated}"
-        )
-        print(f"[DEBUG] Total reward: {final_private_state.total_reward_episode}")
-        return run_successful, num_unique_achievements
+        achievements_list = list(agent.current_achievements)
+        steps_taken = final_public_state.num_steps_taken
+        
+        return run_successful, num_unique_achievements, achievements_list, steps_taken
 
     # ---------------------------------------------------------------- instance factory
     async def make_crafter_instances(
@@ -791,15 +723,10 @@ async def eval_react_crafter(
             f"\nRunning {num_agents} agents on {label} difficulty tasks (max_turns: {max_episode_turns}) for model {current_model_name_for_eval}..."
         )
         current_difficulty_instances = all_tasks_for_eval[label]
-        print(f"[DEBUG] About to run {len(current_difficulty_instances)} instances")
 
         import time
 
         start_time = time.time()
-        print(
-            f"[DEBUG] Starting asyncio.gather for {len(current_difficulty_instances)} episodes at {start_time}"
-        )
-        # results_per_episode is list of (success_status, num_unique_achievements)
         results_per_episode = await asyncio.gather(
             *(
                 run_episode_eval(inst, max_episode_turns)
@@ -808,93 +735,114 @@ async def eval_react_crafter(
         )
         end_time = time.time()
         print(
-            f"[DEBUG] Completed asyncio.gather in {end_time - start_time:.2f} seconds"
+            f"Completed {len(current_difficulty_instances)} episodes in {end_time - start_time:.1f}s"
         )
+
+        # Process detailed results
+        successful_episodes = 0
+        total_achievements = 0
+        detailed_results = []
+        
+        for i, (success, num_achievements, achievements_list, steps_taken) in enumerate(results_per_episode):
+            episode_result = {
+                "episode_id": i + 1,
+                "instance_id": current_difficulty_instances[i].id,
+                "success": success,
+                "achievements_count": num_achievements,
+                "achievements": achievements_list,
+                "steps_taken": steps_taken,
+                "turns_used": "unknown"  # Could track this if needed
+            }
+            detailed_results.append(episode_result)
+            
+            if success:
+                successful_episodes += 1
+            total_achievements += num_achievements
+
+        avg_achievements = total_achievements / len(results_per_episode)
+        
+        # Print detailed trajectory information
+        print(f"\n📊 Detailed Results for {model_name} on {label}:")
+        print("-" * 80)
+        for result in detailed_results:
+            status = "✅ SUCCESS" if result["success"] else "❌ FAILED"
+            achievements_str = ", ".join(result["achievements"]) if result["achievements"] else "None"
+            print(f"Episode {result['episode_id']}: {status} | "
+                  f"Steps: {result['steps_taken']} | "
+                  f"Achievements ({result['achievements_count']}): {achievements_str}")
+        print("-" * 80)
+
         print(
-            f"[DEBUG] Results for model {current_model_name_for_eval} on {label}: {results_per_episode}"
+            f"Completed {label} for model {model_name}: {successful_episodes}/{len(results_per_episode)} successful, Avg. Achievements: {avg_achievements:.2f}"
         )
 
-        num_successful_runs = sum(
-            1 for r_success, _ in results_per_episode if r_success
-        )
-        total_unique_achievements = sum(r_ach for _, r_ach in results_per_episode)
-        avg_unique_achievements = (
-            total_unique_achievements / len(results_per_episode)
-            if results_per_episode
-            else 0.0
-        )
-
-        # Append a dictionary for this mode's results
         results_for_model.append(
             {
-                "Model": current_model_name_for_eval,
+                "Model": model_name,
                 "Difficulty": label,
-                "Successful Runs": f"{num_successful_runs}/{len(current_difficulty_instances)}",
-                "Avg Unique Achievements": f"{avg_unique_achievements:.2f}",
+                "Successful Runs": f"{successful_episodes}/{len(results_per_episode)}",
+                "Avg Unique Achievements": f"{avg_achievements:.2f}",
             }
-        )
-        print(
-            f"Completed {label} for model {current_model_name_for_eval}: {num_successful_runs}/{len(current_difficulty_instances)} successful, Avg. Achievements: {avg_unique_achievements:.2f}"
         )
 
     return results_for_model
 
 
-if __name__ == "__main__":
-    # To run the test:
-    # import tempfile
-    # with tempfile.TemporaryDirectory() as tmpdir:
-    #     asyncio.run(test_react_agent_crafter(Path(tmpdir)))
-
-    # Run both models in parallel with 3 rollouts each
-    async def run_parallel_evaluation():
-        # Define the models to test
-        models_to_test = [
-            {"model_name": "gpt-4.1-mini", "formatting_model_name": "gpt-4.1-mini"},
-            {"model_name": "gpt-4.1", "formatting_model_name": "gpt-4.1"},
-        ]
-
-        print("Starting parallel evaluation of both models...")
-        print("Each model will run 3 parallel environment rollouts")
-
-        # eval_react_crafter now returns a List[Dict[str, Any]]
-        # So, results_from_all_models will be a List[List[Dict[str, Any]]]
-        results_from_all_models = await asyncio.gather(
-            *[
-                eval_react_crafter(
-                    model_name=model_config["model_name"],
-                    formatting_model_name=model_config["formatting_model_name"],
-                    modes=["easy"],  # Can add "hard" or other modes here
-                    n_instances_per_mode=3,  # 3 parallel rollouts per model
-                )
-                for model_config in models_to_test
-            ]
+async def run_model_comparison_from_config():
+    """Run model comparison using parameters from eval_config.toml"""
+    # Load configuration
+    config_path = Path(__file__).parent / "eval_config.toml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    
+    config = toml.load(config_path)
+    eval_config = config["evaluation"]
+    
+    models = eval_config["models"]
+    difficulties = eval_config["difficulties"] 
+    max_turns = eval_config["max_turns"]
+    n_trajectories = eval_config["trajectories_per_condition"]
+    
+    # Update global max_turns from config
+    global agent_max_turns
+    agent_max_turns = max_turns
+    
+    print("🎯 Crafter Multi-Action Model Comparison")
+    print("=" * 50)
+    print(f"Models: {', '.join(models)}")
+    print(f"Difficulties: {', '.join(difficulties)}")
+    print(f"Max turns: {max_turns}")
+    print(f"Trajectories per condition: {n_trajectories}")
+    print("=" * 50)
+    
+    all_results = []
+    
+    for model_name in models:
+        print(f"\n🤖 Running {model_name}...")
+        
+        # Update the global variable for the model
+        global current_model_name_for_eval
+        current_model_name_for_eval = model_name
+        
+        model_results = await eval_react_crafter_legacy(
+            model_name=model_name,
+            formatting_model_name=model_name,
+            modes=difficulties,
+            n_instances_per_mode=n_trajectories
         )
+        
+        all_results.extend(model_results)
+        print(f"✅ {model_name} completed")
+    
+    print("\n" + "=" * 60)
+    print("🏆 FINAL COMPARISON RESULTS")
+    print("=" * 60)
+    
+    from tabulate import tabulate
+    print(tabulate(all_results, headers="keys", tablefmt="github"))
+    
+    return all_results
 
-        print("\n=== PARALLEL EVALUATION COMPLETED ===")
-        print("Both models have finished their rollouts.")
 
-        # Flatten the list of lists into a single list of dictionaries for the combined table
-        combined_results_data = []
-        for model_result_list in results_from_all_models:
-            combined_results_data.extend(model_result_list)
-
-        print("\n--- Combined Evaluation Summary Table ---")
-        from tabulate import (
-            tabulate,
-        )  # Ensure tabulate is imported here if not globally
-
-        if combined_results_data:  # Check if there's data to tabulate
-            # When using a list of dicts, headers="keys" tells tabulate to use dict keys.
-            print(
-                tabulate(
-                    combined_results_data,
-                    headers="keys",  # Corrected: use "keys" for list of dicts
-                    tablefmt="github",
-                )
-            )
-        else:
-            print("No evaluation data to display.")
-
-    # Run the parallel evaluation
-    asyncio.run(run_parallel_evaluation())
+if __name__ == "__main__":
+    asyncio.run(run_model_comparison_from_config())

@@ -1,0 +1,2 @@
+Model,Difficulty,Success Rate,Hafner Score,BALROG Avg,BALROG Best,Avg Steps,Avg Turns,Avg Reward,Unique Achievements,Avg Achievements/Traj,Avg Actions/Turn
+gpt-4o-mini,easy,100.0%,0.5%,9.1%,9.1%,36.0,10.0,-0.036,2,2.00,3.6
