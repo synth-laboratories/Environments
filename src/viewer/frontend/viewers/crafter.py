@@ -3,21 +3,22 @@ import json
 from typing import Dict, Any, List
 import base64
 
+
 def CrafterViewer(trace_data: Dict[str, Any]) -> rx.Component:
     """Crafter-specific trace viewer component."""
-    
+
     # Extract trace structure
     trace = trace_data.get("trace", {})
     dataset = trace_data.get("dataset", {})
     metadata = trace.get("metadata", {})
     partitions = trace.get("partition", [])
-    
+
     # Extract summary data
     model_name = metadata.get("model_name", "Unknown")
     difficulty = metadata.get("difficulty", "Unknown")
     total_reward = dataset.get("reward_signals", [{}])[0].get("reward", 0.0)
     num_turns = len(partitions)
-    
+
     return rx.vstack(
         # Header
         rx.hstack(
@@ -26,7 +27,6 @@ def CrafterViewer(trace_data: Dict[str, Any]) -> rx.Component:
             justify_content="space-between",
             width="100%",
         ),
-        
         # Summary stats
         rx.hstack(
             rx.stat(
@@ -40,11 +40,10 @@ def CrafterViewer(trace_data: Dict[str, Any]) -> rx.Component:
             spacing="4",
             margin_bottom="1rem",
         ),
-        
         # Turn-by-turn viewer
         rx.tabs(
             rx.tab_list(
-                *[rx.tab(f"Turn {i+1}") for i in range(min(num_turns, 10))],
+                *[rx.tab(f"Turn {i + 1}") for i in range(min(num_turns, 10))],
                 rx.cond(
                     num_turns > 10,
                     rx.tab(f"... +{num_turns - 10} more"),
@@ -52,14 +51,12 @@ def CrafterViewer(trace_data: Dict[str, Any]) -> rx.Component:
             ),
             rx.tab_panels(
                 *[
-                    rx.tab_panel(
-                        render_crafter_turn(partitions[i], i)
-                    ) for i in range(min(num_turns, 10))
+                    rx.tab_panel(render_crafter_turn(partitions[i], i))
+                    for i in range(min(num_turns, 10))
                 ],
             ),
             width="100%",
         ),
-        
         width="100%",
         padding="1rem",
         spacing="4",
@@ -71,20 +68,20 @@ def render_crafter_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
     events = partition.get("events", [])
     if not events:
         return rx.text("No events in this turn", color="gray.500")
-    
+
     event = events[0]  # Usually one event per turn
-    
+
     # Extract environment steps
     env_steps = event.get("environment_compute_steps", [])
-    
+
     # Collect images and actions
     images = []
     actions = []
     stats = {}
-    
+
     for step in env_steps:
         outputs = step.get("compute_output", [{}])[0].get("outputs", {})
-        
+
         # Extract image
         if "image_base64" in outputs:
             images.append(outputs["image_base64"])
@@ -93,17 +90,17 @@ def render_crafter_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
             if not img_data.startswith("data:"):
                 img_data = f"data:image/png;base64,{img_data}"
             images.append(img_data)
-        
+
         # Extract action
         action_idx = outputs.get("action_index", -1)
         if action_idx >= 0:
             action_name = get_crafter_action_name(action_idx)
             actions.append(f"{action_name} ({action_idx})")
-        
+
         # Extract stats
         if "player_stats" in outputs:
             stats = outputs["player_stats"]
-    
+
     return rx.vstack(
         # Actions taken
         rx.cond(
@@ -118,7 +115,6 @@ def render_crafter_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
                 spacing="2",
             ),
         ),
-        
         # Player stats
         rx.cond(
             len(stats) > 0,
@@ -130,7 +126,6 @@ def render_crafter_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
                 spacing="2",
             ),
         ),
-        
         # Images
         rx.cond(
             len(images) > 0,
@@ -139,21 +134,27 @@ def render_crafter_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
                 rx.hstack(
                     *[
                         rx.image(
-                            src=img if img.startswith("data:") else f"data:image/png;base64,{img}",
+                            src=img
+                            if img.startswith("data:")
+                            else f"data:image/png;base64,{img}",
                             width="200px",
                             height="200px",
                             object_fit="contain",
                             border="1px solid #ddd",
                             border_radius="4px",
-                        ) for img in images[:3]  # Show max 3 images
+                        )
+                        for img in images[:3]  # Show max 3 images
                     ],
                     spacing="2",
                 ),
                 spacing="2",
             ),
-            rx.text("No images available for this turn", color="gray.500", font_style="italic"),
+            rx.text(
+                "No images available for this turn",
+                color="gray.500",
+                font_style="italic",
+            ),
         ),
-        
         spacing="4",
         padding="1rem",
         border="1px solid #eee",
@@ -165,7 +166,7 @@ def get_crafter_action_name(action_idx: int) -> str:
     """Map Crafter action index to name."""
     action_names = {
         0: "noop",
-        1: "move_left", 
+        1: "move_left",
         2: "move_right",
         3: "move_up",
         4: "move_down",
@@ -179,7 +180,7 @@ def get_crafter_action_name(action_idx: int) -> str:
         12: "make_stone_pickaxe",
         13: "make_iron_pickaxe",
         14: "make_wood_sword",
-        15: "make_stone_sword", 
-        16: "make_iron_sword"
+        15: "make_stone_sword",
+        16: "make_iron_sword",
     }
     return action_names.get(action_idx, f"unknown_{action_idx}")

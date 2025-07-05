@@ -15,6 +15,7 @@ DURATIONS_FILE = Path(__file__).parent / "test_durations.txt"
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _collect_slow_tests() -> set[str]:
     """Return a set of nodeids that exceeded *SLOW_THRESHOLD_SECONDS*."""
     slow: set[str] = set()
@@ -65,7 +66,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "fast: tests that are fast (quick unit tests)")
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     # First, auto-mark the slow tests based on prior timing data.
     for item in items:
         if item.nodeid in _SLOW_TESTS:
@@ -73,7 +76,9 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     # Handle --fast flag: only run tests marked as fast
     if config.getoption("--fast"):
-        skip_marker = pytest.mark.skip(reason="Skipped non-fast test (only running fast tests)")
+        skip_marker = pytest.mark.skip(
+            reason="Skipped non-fast test (only running fast tests)"
+        )
         for item in items:
             if "fast" not in item.keywords:
                 item.add_marker(skip_marker)
@@ -84,4 +89,4 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         skip_marker = pytest.mark.skip(reason="Skipped slow test (pass --slow to run)")
         for item in items:
             if "slow" in item.keywords:
-                item.add_marker(skip_marker) 
+                item.add_marker(skip_marker)

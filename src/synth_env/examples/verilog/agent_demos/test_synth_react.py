@@ -534,7 +534,6 @@ async def run_parallel_evaluation(
 
 
 if __name__ == "__main__":
-
     asyncio.run(
         run_parallel_evaluation(
             models_to_test=["gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1"],

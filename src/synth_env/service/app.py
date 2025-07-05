@@ -14,7 +14,10 @@ import logging
 from fastapi import FastAPI
 from synth_env.service.registry import list_supported_env_types, register_environment
 from synth_env.service.core_routes import api_router
-from synth_env.service.external_registry import ExternalRegistryConfig, load_external_environments
+from synth_env.service.external_registry import (
+    ExternalRegistryConfig,
+    load_external_environments,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

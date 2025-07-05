@@ -38,14 +38,15 @@ OUTPUT_FILENAME = "test_durations.txt"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run_pytest_and_capture() -> str:
     """Run pytest and return its full captured (stdout + stderr) text."""
     cmd = [
         "pytest",
         TESTS_DIR,
         "--durations=0",  # report *all* test durations
-        "--color=no",     # strip ANSI colour codes for easier parsing
-        "-q",             # quiet ‑ only test results + durations
+        "--color=no",  # strip ANSI colour codes for easier parsing
+        "-q",  # quiet ‑ only test results + durations
     ]
     completed = subprocess.run(
         cmd,
@@ -87,4 +88,6 @@ if __name__ == "__main__":
     duration_lines = extract_duration_lines(raw_output)
     write_durations(duration_lines, output_file)
 
-    print(f"✅ Wrote {len(duration_lines)} duration entries to {output_file.relative_to(repo_root)}") 
+    print(
+        f"✅ Wrote {len(duration_lines)} duration entries to {output_file.relative_to(repo_root)}"
+    )

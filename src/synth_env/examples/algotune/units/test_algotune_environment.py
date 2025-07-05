@@ -2,7 +2,8 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../../..'))
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../../.."))
 
 import asyncio
 import pytest
@@ -30,7 +31,7 @@ class TestAlgoTuneEngine:
         """Test engine reset returns proper state."""
         engine = _AlgoTuneEngine("matrix_multiplication", n=32)
         priv, pub = await engine.reset()
-        
+
         assert priv["terminated"] == False
         assert pub["task"] == "matrix_multiplication"
         assert pub["n"] == 32
@@ -41,35 +42,35 @@ class TestAlgoTuneEngine:
     async def test_engine_step_with_valid_code(self):
         """Test engine step with valid solution code."""
         engine = _AlgoTuneEngine("matrix_multiplication", n=32)
-        
+
         # Use the baseline solution as our test code
-        code = '''
+        code = """
 import numpy as np
 def solve(problem):
     A = problem["A"]
     B = problem["B"]
     return {"C": np.dot(A, B).tolist()}
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == True
         assert err is None
         assert pub["attempt"] == 1
         assert pub["ok"] == True
         assert pub["elapsed"] > 0
         assert pub["speedup_vs_baseline"] > 0
-        
+
     @pytest.mark.asyncio
     async def test_engine_step_with_invalid_code(self):
         """Test engine step with code missing solve function."""
         engine = _AlgoTuneEngine("matrix_multiplication", n=32)
-        
-        code = '''
+
+        code = """
 def helper():
     pass
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == False
         assert err == "No `solve` function defined"
         assert pub == {}
@@ -78,14 +79,14 @@ def helper():
     async def test_engine_step_with_incorrect_solution(self):
         """Test engine step with incorrect solution."""
         engine = _AlgoTuneEngine("matrix_multiplication", n=32)
-        
-        code = '''
+
+        code = """
 def solve(problem):
     # Return wrong result
     return {"C": [[0]]}
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == False
         assert pub["attempt"] == 1
         assert pub["ok"] == False
@@ -100,7 +101,7 @@ class TestAlgoTuneEnvironment:
         """Test environment initializes correctly."""
         task = TaskInstance(id="test-1", description="Test AlgoTune")
         env = AlgoTuneEnvironment(task, task_name="matrix_multiplication", n=32)
-        
+
         obs = await env.initialize()
         assert "public" in obs
         assert "private" in obs
@@ -113,15 +114,15 @@ class TestAlgoTuneEnvironment:
         task = TaskInstance(id="test-1", description="Test AlgoTune")
         env = AlgoTuneEnvironment(task, task_name="matrix_multiplication", n=32)
         await env.initialize()
-        
-        code = '''
+
+        code = """
 import numpy as np
 def solve(problem):
     return {"C": np.dot(problem["A"], problem["B"]).tolist()}
-'''
+"""
         tool_call = EnvToolCall(tool="optimise", args={"code": code})
         obs = await env.step(tool_call)
-        
+
         assert "public" in obs
         assert obs["public"]["ok"] == True
         assert obs["public"]["speedup_vs_baseline"] > 0
@@ -132,14 +133,14 @@ def solve(problem):
         task = TaskInstance(id="test-1", description="Test AlgoTune")
         env = AlgoTuneEnvironment(task, task_name="matrix_multiplication", n=32)
         await env.initialize()
-        
-        code = '''
+
+        code = """
 def solve(problem):
     import numpy as np
     return {"C": np.dot(problem["A"], problem["B"]).tolist()}
-'''
+"""
         obs = await env.step({"code": code})
-        
+
         assert "public" in obs
         assert obs["public"]["ok"] == True
 
@@ -148,13 +149,13 @@ def solve(problem):
         """Test environment serialization/deserialization."""
         task = TaskInstance(id="test-1", description="Test AlgoTune")
         env = AlgoTuneEnvironment(task, task_name="sorting", n=64, random_seed=123)
-        
+
         # Serialize
         snapshot = await env._serialize_engine()
         assert snapshot["task"] == "sorting"
         assert snapshot["n"] == 64
         assert snapshot["seed"] == 123
-        
+
         # Deserialize
         new_engine = await AlgoTuneEnvironment._deserialize_engine(task, snapshot)
         assert new_engine.task_name == "sorting"
@@ -169,17 +170,17 @@ class TestAlgoTuneGoldSolutions:
     async def test_qr_factorization_gold(self):
         """Test QR factorization gold solution."""
         engine = _AlgoTuneEngine("qr_factorization", n=64)
-        
+
         # Submit the gold solution
-        code = '''
+        code = """
 import numpy as np
 def solve(problem):
     A = problem["matrix"]
     Q, R = np.linalg.qr(A, mode="reduced")
     return {"QR": {"Q": Q.tolist(), "R": R.tolist()}}
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == True
         assert pub["ok"] == True
         assert pub["speedup_vs_baseline"] > 0.5  # Should be close to 1.0
@@ -188,14 +189,14 @@ def solve(problem):
     async def test_sorting_gold(self):
         """Test sorting gold solution."""
         engine = _AlgoTuneEngine("sorting", n=128)
-        
-        code = '''
+
+        code = """
 def solve(problem):
     arr = problem["array"]
     return {"sorted_array": sorted(arr)}
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == True
         assert pub["ok"] == True
 
@@ -203,8 +204,8 @@ def solve(problem):
     async def test_binary_search_gold(self):
         """Test binary search gold solution."""
         engine = _AlgoTuneEngine("binary_search", n=128)
-        
-        code = '''
+
+        code = """
 def solve(problem):
     arr = problem["sorted_array"]
     target = problem["target"]
@@ -219,9 +220,9 @@ def solve(problem):
         else:
             right = mid - 1
     return {"index": -1}
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == True
         assert pub["ok"] == True
 
@@ -229,8 +230,8 @@ def solve(problem):
     async def test_convex_hull_gold(self):
         """Test convex hull gold solution."""
         engine = _AlgoTuneEngine("convex_hull", n=64)
-        
-        code = '''
+
+        code = """
 def solve(problem):
     points = problem["points"]
     
@@ -254,9 +255,9 @@ def solve(problem):
         upper.append(p)
     
     return {"hull": lower[:-1] + upper[:-1]}
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == True
         assert pub["ok"] == True
 
@@ -264,8 +265,8 @@ def solve(problem):
     async def test_maximum_subarray_gold(self):
         """Test maximum subarray (Kadane's algorithm) gold solution."""
         engine = _AlgoTuneEngine("maximum_subarray", n=128)
-        
-        code = '''
+
+        code = """
 def solve(problem):
     arr = problem["array"]
     
@@ -290,9 +291,9 @@ def solve(problem):
         "start_index": start,
         "end_index": end
     }
-'''
+"""
         ok, err, (priv, pub) = await engine.step(code)
-        
+
         assert ok == True
         assert pub["ok"] == True
 
@@ -301,23 +302,23 @@ def solve(problem):
 async def test_multiple_attempts_tracking():
     """Test that multiple attempts are tracked correctly."""
     engine = _AlgoTuneEngine("sorting", n=64)
-    
+
     # First attempt - baseline solution
-    code1 = '''
+    code1 = """
 def solve(problem):
     return {"sorted_array": sorted(problem["array"])}
-'''
+"""
     ok1, _, (_, pub1) = await engine.step(code1)
     assert pub1["attempt"] == 1
     assert ok1 == True
-    
+
     # Second attempt - potentially optimized
-    code2 = '''
+    code2 = """
 def solve(problem):
     arr = problem["array"][:]
     arr.sort()  # In-place sort might be faster
     return {"sorted_array": arr}
-'''
+"""
     ok2, _, (_, pub2) = await engine.step(code2)
     assert pub2["attempt"] == 2
     assert ok2 == True

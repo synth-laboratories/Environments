@@ -3,7 +3,9 @@ import gym_sokoban.envs.room_utils as ru
 from gym_sokoban.envs.room_utils import generate_room
 
 
-@pytest.mark.xfail(reason="This test is expected to fail as the dimension is too small.")
+@pytest.mark.xfail(
+    reason="This test is expected to fail as the dimension is too small."
+)
 def test_generate_room_raises_runtime_warning_on_score_zero(monkeypatch):
     """If reverse_playing always yields score=0, generate_room should raise a RuntimeWarning."""
 

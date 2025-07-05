@@ -45,10 +45,10 @@ class _AlgoTuneEngine:
         self.random_seed = random_seed
         # Import TaskFactory from AlgoTune
         from AlgoTuneTasks.factory import TaskFactory
-        
+
         # Create the task instance
         self._task = TaskFactory(task_name)
-        
+
         # Generate problem and solve for baseline
         self.problem = self._task.generate_problem(n, random_seed=random_seed)
         t0 = time.perf_counter()
@@ -128,7 +128,9 @@ class AlgoTuneCodeInput(BaseModel):
 
 class _AlgoTuneTool(AbstractTool):
     name = "optimise"
-    description = "Submit candidate `solve(problem)` implementation for speed optimisation."
+    description = (
+        "Submit candidate `solve(problem)` implementation for speed optimisation."
+    )
     call_schema = AlgoTuneCodeInput
     result_schema = ToolResult
 
@@ -161,19 +163,22 @@ class AlgoTuneEnvironment(
     ):
         self.name = "AlgoTune"
         self.task_instance = task_instance
-        
+
         # Extract parameters from task instance metadata
         from synth_env.examples.algotune.taskset import AlgoTuneTaskInstanceMetadata
+
         if isinstance(task_instance.metadata, AlgoTuneTaskInstanceMetadata):
             task_name = task_instance.metadata.task_name
             n = task_instance.metadata.problem_size
             random_seed = task_instance.metadata.random_seed
         else:
             # Fallback for compatibility
-            task_name = getattr(task_instance.metadata, 'task_name', 'matrix_multiplication')
-            n = getattr(task_instance.metadata, 'problem_size', 128)
-            random_seed = getattr(task_instance.metadata, 'random_seed', 1)
-        
+            task_name = getattr(
+                task_instance.metadata, "task_name", "matrix_multiplication"
+            )
+            n = getattr(task_instance.metadata, "problem_size", 128)
+            random_seed = getattr(task_instance.metadata, "random_seed", 1)
+
         self.engine = _AlgoTuneEngine(task_name, n, random_seed)
         self._optimise_tool = _AlgoTuneTool(self.engine)
         self._obs_callable = custom_obs
@@ -203,9 +208,7 @@ class AlgoTuneEnvironment(
 
     # --------------------------------------------------- helpers
 
-    def validate_tool_calls(
-        self, tool_calls
-    ) -> EnvToolCall:  # type: ignore[override]
+    def validate_tool_calls(self, tool_calls) -> EnvToolCall:  # type: ignore[override]
         if isinstance(tool_calls, EnvToolCall):
             return tool_calls
         if isinstance(tool_calls, str):

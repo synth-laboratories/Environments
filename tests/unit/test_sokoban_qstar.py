@@ -9,12 +9,20 @@ from typing import Dict, Any
 
 from synth_env.examples.sokoban.environment import SokobanEnvironment
 from synth_env.examples.sokoban.engine import SokobanEngine
-from synth_env.examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
+from synth_env.examples.sokoban.taskset import (
+    SokobanTaskInstance,
+    SokobanTaskInstanceMetadata,
+)
 from synth_env.tasks.core import Impetus, Intent
 from synth_env.environment.tools import EnvToolCall
 
 # Import the A* solver utilities
-from synth_env.examples.sokoban.units.astar_common import astar, solved, heuristic, ENGINE_ASTAR
+from synth_env.examples.sokoban.units.astar_common import (
+    astar,
+    solved,
+    heuristic,
+    ENGINE_ASTAR,
+)
 
 
 # Test fixtures for various Sokoban puzzles

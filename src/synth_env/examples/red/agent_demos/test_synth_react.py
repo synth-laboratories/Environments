@@ -1,4 +1,3 @@
-
 import asyncio
 import uuid
 import pytest
@@ -758,9 +757,7 @@ class ReActAgent:
                     buffer.seek(0)
                     base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8")
                     screen_images_bytes = [base64_image]
-                    print(
-                        "[AGENT_DEBUG] Successfully converted screen to base64 image"
-                    )
+                    print("[AGENT_DEBUG] Successfully converted screen to base64 image")
                 else:
                     print("[AGENT_DEBUG] No screen buffer available in observation")
 
@@ -917,9 +914,7 @@ class ReActAgent:
                 else:
                     tool_arguments_dict = json.loads(tool_args_str)
             else:
-                print(
-                    "[AGENT_DEBUG] Unexpected tool_call structure, falling back to A"
-                )
+                print("[AGENT_DEBUG] Unexpected tool_call structure, falling back to A")
                 self.history.append(
                     {"type": "error", "content": "Unexpected tool_call structure."}
                 )

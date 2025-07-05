@@ -4,7 +4,10 @@ Unit tests for external environment registry functionality.
 
 import pytest
 from unittest.mock import patch, MagicMock
-from synth_env.service.external_registry import ExternalRegistryConfig, load_external_environments
+from synth_env.service.external_registry import (
+    ExternalRegistryConfig,
+    load_external_environments,
+)
 
 
 @pytest.mark.fast

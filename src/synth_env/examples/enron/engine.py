@@ -19,7 +19,10 @@ from synth_ai.zyk import LM  # Import LM class
 
 from .db.sqlite import SQLiteManager
 from synth_env.environment.rewards.core import RewardStack, RewardComponent
-from synth_env.examples.enron.art_helpers.local_email_db import DEFAULT_DB_PATH, generate_database
+from synth_env.examples.enron.art_helpers.local_email_db import (
+    DEFAULT_DB_PATH,
+    generate_database,
+)
 
 # --------------------------------------------------------------------------- actions
 ACTION_SEARCH = "search"

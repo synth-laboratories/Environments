@@ -215,6 +215,7 @@ class CrafterInteractArgs(BaseModel):
 # --- ReAct agent for Crafter -------------------------------------------------- #
 class CrafterInteractTool(BaseTool):
     """Tool for interacting with Crafter environment"""
+
     name: str = "crafter_interact"
     arguments: type[BaseModel] = CrafterInteractArgs
     description: str = "Interacts with the Crafter environment by proposing a sequence of 1-10 actions to execute."
@@ -307,20 +308,27 @@ class ReActAgent:
         )
 
         tool_calls = response_obj.tool_calls
-        
+
         # Handle case where tool_calls is None or empty (noop to prevent crash)
         if not tool_calls:
-            #print(f"[WARNING] No tool calls returned by {self.llm.model_name}, returning noop action")
-            self.history.append({
-                "type": "tool_call",
-                "tool_name": "noop",
-                "tool_arguments": {"reason": "no_tool_calls_returned"},
-            })
-            self.history.append({"type": "tool_response", "content": "Noop executed due to missing tool calls"})
+            # print(f"[WARNING] No tool calls returned by {self.llm.model_name}, returning noop action")
+            self.history.append(
+                {
+                    "type": "tool_call",
+                    "tool_name": "noop",
+                    "tool_arguments": {"reason": "no_tool_calls_returned"},
+                }
+            )
+            self.history.append(
+                {
+                    "type": "tool_response",
+                    "content": "Noop executed due to missing tool calls",
+                }
+            )
             return [0]  # Return 'noop' action (action index 0)
-        
+
         tool_call_data = tool_calls[0]
-        
+
         # Handle both dict and object formats
         if isinstance(tool_call_data, dict):
             tool_name = tool_call_data["function"]["name"]
@@ -328,40 +336,44 @@ class ReActAgent:
         else:
             tool_name = tool_call_data.function.name
             tool_args_str = tool_call_data.function.arguments
-            
+
         tool_arguments = json.loads(tool_args_str)
 
-        self.history.append({
-            "type": "tool_call",
-            "tool_name": tool_name,
-            "tool_arguments": tool_arguments,
-        })
+        self.history.append(
+            {
+                "type": "tool_call",
+                "tool_name": tool_name,
+                "tool_arguments": tool_arguments,
+            }
+        )
         self.history.append({"type": "tool_response", "content": "Tool executed"})
 
         if tool_name == "crafter_interact":
             actions_list = tool_arguments["actions_list"]
-            
+
             # Convert action names to integers
             action_ints = []
             for action_str in actions_list:
                 if action_str in ACTION_STRING_TO_INT:
                     action_ints.append(ACTION_STRING_TO_INT[action_str])
                 else:
-                    print(f"[WARNING] Invalid action '{action_str}', using noop instead")
+                    print(
+                        f"[WARNING] Invalid action '{action_str}', using noop instead"
+                    )
                     action_ints.append(0)  # noop action
 
             return action_ints
 
         # elif tool_name == "terminate":
         #     reason = tool_arguments["reason"]
-        #     
+        #
         #     # Add the human-readable termination reason to the history
         #     self.history.append({
         #         "type": "termination",
         #         "content": f"Agent terminated: {reason}",
         #         "reason": reason
         #     })
-        #     
+        #
         #     return [-1]  # Special termination indicator
 
 
@@ -429,24 +441,28 @@ async def test_react_agent_crafter(tmp_path: Path):
             for act_idx in action_sequence:
                 step_result = await env.step([[CrafterMove(act_idx)]])
                 obs_payload_next = step_result
-                
+
                 if "error" in obs_payload_next:
                     break
-                    
+
                 # Update observation for next action in sequence
                 current_formatted_obs = obs_payload_next["formatted_obs"]
                 raw_obs_for_agent_decision = obs_payload_next
                 obs_payload = obs_payload_next
-                
+
                 # Check if environment terminated after this sub-action
-                if (obs_payload_next["private"].terminated or 
-                    obs_payload_next["private"].truncated):
+                if (
+                    obs_payload_next["private"].terminated
+                    or obs_payload_next["private"].truncated
+                ):
                     priv_state = obs_payload_next["private"]
                     pub_state = obs_payload_next["public"]
-                    player_health = priv_state.player_internal_stats.get("health", "N/A")
+                    player_health = priv_state.player_internal_stats.get(
+                        "health", "N/A"
+                    )
                     steps_taken = pub_state.num_steps_taken
                     max_steps = pub_state.max_steps_episode
-                    
+
                     break
 
             if "error" in obs_payload_next:
@@ -499,7 +515,7 @@ async def test_react_agent_crafter(tmp_path: Path):
                 system_instance_id=agent.system_instance_id,
                 reward=1
                 if episode_completed or num_achievements > 0
-                else 0  # Reward if completed or got any achievement
+                else 0,  # Reward if completed or got any achievement
             )
         ],
     )
@@ -521,35 +537,40 @@ async def eval_react_crafter(
     and returns a list of dictionaries containing aggregated results for each mode.
     """
     # Import the new evaluation framework
-    from synth_env.examples.crafter_classic.agent_demos.eval_framework import run_crafter_eval
-    
+    from synth_env.examples.crafter_classic.agent_demos.eval_framework import (
+        run_crafter_eval,
+    )
+
     if modes is None:
         modes = ["easy", "hard"]
-    
+
     print(f"🎯 Running Crafter evaluation with new standardized framework")
     print(f"   Model: {model_name}")
     print(f"   Modes: {modes}")
     print(f"   Trajectories per mode: {n_instances_per_mode}")
-    
+
     # Use the new comprehensive evaluation framework
     report = await run_crafter_eval(
         model_names=[model_name],
         difficulties=modes,
         num_trajectories=n_instances_per_mode,
-        max_turns=30
+        max_turns=30,
     )
-    
+
     # Convert to old format for backward compatibility
     results_for_model = []
     for agg_result in report["raw_aggregate_results"]:
-        results_for_model.append({
-            "Model": agg_result["model_name"],
-            "Difficulty": agg_result["difficulty"],
-            "Successful Runs": f"{int(agg_result['success_rate'] * agg_result['num_trajectories'])}/{agg_result['num_trajectories']}",
-            "Avg Unique Achievements": f"{agg_result['avg_achievements_per_trajectory']:.2f}",
-        })
-    
+        results_for_model.append(
+            {
+                "Model": agg_result["model_name"],
+                "Difficulty": agg_result["difficulty"],
+                "Successful Runs": f"{int(agg_result['success_rate'] * agg_result['num_trajectories'])}/{agg_result['num_trajectories']}",
+                "Avg Unique Achievements": f"{agg_result['avg_achievements_per_trajectory']:.2f}",
+            }
+        )
+
     return results_for_model
+
 
 # Keep the old function for backward compatibility
 async def eval_react_crafter_legacy(
@@ -588,7 +609,7 @@ async def eval_react_crafter_legacy(
             formatting_model_name=current_model_name_for_eval,
             temperature=0.0,
         )
-        
+
         hist_cb = CrafterHistoryObservationCallable(max_history=1)
         env = CrafterClassicEnvironment(inst, custom_step_obs=hist_cb)
         agent = ReActAgent(llm, max_turns=agent_max_turns)
@@ -604,7 +625,7 @@ async def eval_react_crafter_legacy(
         for turn_idx in range(agent.max_turns):
             turn_count += 1
             # Remove noisy progress output
-            
+
             action_sequence = await agent.decide(
                 current_formatted_obs, raw_obs_for_agent_decision
             )
@@ -618,18 +639,25 @@ async def eval_react_crafter_legacy(
 
                 if "error" in obs_payload_next:
                     break  # Break out of action sequence on error
-                    
+
                 # Update observation for next action in sequence
                 current_formatted_obs = obs_payload_next["formatted_obs"]
                 raw_obs_for_agent_decision = obs_payload_next
-                
+
                 # Check if environment terminated after this sub-action
-                if (obs_payload_next["private"].terminated or 
-                    obs_payload_next["private"].truncated):
+                if (
+                    obs_payload_next["private"].terminated
+                    or obs_payload_next["private"].truncated
+                ):
                     break
 
             if "error" in obs_payload_next:
-                return False, len(agent.current_achievements), list(agent.current_achievements), 0
+                return (
+                    False,
+                    len(agent.current_achievements),
+                    list(agent.current_achievements),
+                    0,
+                )
 
             current_formatted_obs = obs_payload_next["formatted_obs"]
             raw_obs_for_agent_decision = obs_payload_next
@@ -643,15 +671,15 @@ async def eval_react_crafter_legacy(
 
         final_private_state: CrafterPrivateState = obs_payload["private"]
         final_public_state: CrafterPublicState = obs_payload["public"]
-        
+
         run_successful = (
             final_private_state.terminated or final_private_state.truncated
         ) or len(agent.current_achievements) >= 1
-        
+
         num_unique_achievements = len(agent.current_achievements)
         achievements_list = list(agent.current_achievements)
         steps_taken = final_public_state.num_steps_taken
-        
+
         return run_successful, num_unique_achievements, achievements_list, steps_taken
 
     # ---------------------------------------------------------------- instance factory
@@ -742,8 +770,10 @@ async def eval_react_crafter_legacy(
         successful_episodes = 0
         total_achievements = 0
         detailed_results = []
-        
-        for i, (success, num_achievements, achievements_list, steps_taken) in enumerate(results_per_episode):
+
+        for i, (success, num_achievements, achievements_list, steps_taken) in enumerate(
+            results_per_episode
+        ):
             episode_result = {
                 "episode_id": i + 1,
                 "instance_id": current_difficulty_instances[i].id,
@@ -751,25 +781,29 @@ async def eval_react_crafter_legacy(
                 "achievements_count": num_achievements,
                 "achievements": achievements_list,
                 "steps_taken": steps_taken,
-                "turns_used": "unknown"  # Could track this if needed
+                "turns_used": "unknown",  # Could track this if needed
             }
             detailed_results.append(episode_result)
-            
+
             if success:
                 successful_episodes += 1
             total_achievements += num_achievements
 
         avg_achievements = total_achievements / len(results_per_episode)
-        
+
         # Print detailed trajectory information
         print(f"\n📊 Detailed Results for {model_name} on {label}:")
         print("-" * 80)
         for result in detailed_results:
             status = "✅ SUCCESS" if result["success"] else "❌ FAILED"
-            achievements_str = ", ".join(result["achievements"]) if result["achievements"] else "None"
-            print(f"Episode {result['episode_id']}: {status} | "
-                  f"Steps: {result['steps_taken']} | "
-                  f"Achievements ({result['achievements_count']}): {achievements_str}")
+            achievements_str = (
+                ", ".join(result["achievements"]) if result["achievements"] else "None"
+            )
+            print(
+                f"Episode {result['episode_id']}: {status} | "
+                f"Steps: {result['steps_taken']} | "
+                f"Achievements ({result['achievements_count']}): {achievements_str}"
+            )
         print("-" * 80)
 
         print(
@@ -794,19 +828,19 @@ async def run_model_comparison_from_config():
     config_path = Path(__file__).parent / "eval_config.toml"
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    
+
     config = toml.load(config_path)
     eval_config = config["evaluation"]
-    
+
     models = eval_config["models"]
-    difficulties = eval_config["difficulties"] 
+    difficulties = eval_config["difficulties"]
     max_turns = eval_config["max_turns"]
     n_trajectories = eval_config["trajectories_per_condition"]
-    
+
     # Update global max_turns from config
     global agent_max_turns
     agent_max_turns = max_turns
-    
+
     print("🎯 Crafter Multi-Action Model Comparison")
     print("=" * 50)
     print(f"Models: {', '.join(models)}")
@@ -814,33 +848,34 @@ async def run_model_comparison_from_config():
     print(f"Max turns: {max_turns}")
     print(f"Trajectories per condition: {n_trajectories}")
     print("=" * 50)
-    
+
     all_results = []
-    
+
     for model_name in models:
         print(f"\n🤖 Running {model_name}...")
-        
+
         # Update the global variable for the model
         global current_model_name_for_eval
         current_model_name_for_eval = model_name
-        
+
         model_results = await eval_react_crafter_legacy(
             model_name=model_name,
             formatting_model_name=model_name,
             modes=difficulties,
-            n_instances_per_mode=n_trajectories
+            n_instances_per_mode=n_trajectories,
         )
-        
+
         all_results.extend(model_results)
         print(f"✅ {model_name} completed")
-    
+
     print("\n" + "=" * 60)
     print("🏆 FINAL COMPARISON RESULTS")
     print("=" * 60)
-    
+
     from tabulate import tabulate
+
     print(tabulate(all_results, headers="keys", tablefmt="github"))
-    
+
     return all_results
 
 

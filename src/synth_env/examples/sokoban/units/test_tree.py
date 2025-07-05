@@ -23,7 +23,10 @@ import numpy as np
 import pytest
 
 from synth_env.reproducibility.tree import FilesystemSnapshotStore, TrajectoryTreeStore
-from synth_env.examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
+from synth_env.examples.sokoban.taskset import (
+    SokobanTaskInstance,
+    SokobanTaskInstanceMetadata,
+)
 
 # from examples.sokoban.engine import SokobanEngineSnapshot  # only a type
 from synth_env.tasks.core import Impetus, Intent

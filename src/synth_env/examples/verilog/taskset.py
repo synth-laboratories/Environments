@@ -202,7 +202,9 @@ endmodule"""
     )
 
     intent = Intent(
-        rubric={"goal": f"Implement correct TopModule for {problem_id} that passes testbench verification"},
+        rubric={
+            "goal": f"Implement correct TopModule for {problem_id} that passes testbench verification"
+        },
         gold_trajectories=None,
         gold_state_diff={},
     )

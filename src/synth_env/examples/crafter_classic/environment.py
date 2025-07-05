@@ -187,10 +187,14 @@ class CrafterClassicEnvironment(
             # payload contains the actual state objects from the interact tool
             priv_state = payload_dict.get("private_state")
             pub_state = payload_dict.get("public_state")
-            
+
             # Validate we got the expected state objects
-            if not isinstance(priv_state, CrafterPrivateState) or not isinstance(pub_state, CrafterPublicState):
-                logger.error(f"Invalid state types in payload: priv={type(priv_state)}, pub={type(pub_state)}")
+            if not isinstance(priv_state, CrafterPrivateState) or not isinstance(
+                pub_state, CrafterPublicState
+            ):
+                logger.error(
+                    f"Invalid state types in payload: priv={type(priv_state)}, pub={type(pub_state)}"
+                )
                 # Fall back to getting current state
                 pub_state = self.engine._get_public_state_from_env()
                 health_dead = safe_compare(0, self.engine.env._player.health, ">=")
@@ -205,8 +209,10 @@ class CrafterClassicEnvironment(
             # Tool call failed, use states from payload if available, otherwise get current state
             priv_state = payload_dict.get("private_state")
             pub_state = payload_dict.get("public_state")
-            
-            if not isinstance(priv_state, CrafterPrivateState) or not isinstance(pub_state, CrafterPublicState):
+
+            if not isinstance(priv_state, CrafterPrivateState) or not isinstance(
+                pub_state, CrafterPublicState
+            ):
                 # Fall back to getting current state
                 pub_state = self.engine._get_public_state_from_env()
                 health_dead = safe_compare(0, self.engine.env._player.health, ">=")
@@ -216,7 +222,7 @@ class CrafterClassicEnvironment(
                 priv_state = self.engine._get_private_state_from_env(
                     0, health_dead, step_exceeded
                 )
-            
+
             if tool_result.error:
                 pub_state.error_info = tool_result.error
 

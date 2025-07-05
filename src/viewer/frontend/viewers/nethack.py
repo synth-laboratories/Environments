@@ -2,24 +2,24 @@ import reflex as rx
 import json
 from typing import Dict, Any, List
 
+
 def NethackViewer(trace_data: Dict[str, Any]) -> rx.Component:
     """NetHack-specific trace viewer component."""
-    
+
     # Extract trace structure
     trace = trace_data.get("trace", {})
     dataset = trace_data.get("dataset", {})
     metadata = trace.get("metadata", {})
     partitions = trace.get("partition", [])
-    
+
     # Extract summary data
     model_name = metadata.get("model_name", "Unknown")
     total_reward = dataset.get("reward_signals", [{}])[0].get("reward", 0.0)
     num_turns = len(partitions)
-    
+
     return rx.vstack(
         # Header
         rx.heading(f"NetHack Trace - {model_name}", size="4"),
-        
         # Summary stats
         rx.hstack(
             rx.stat(
@@ -37,11 +37,10 @@ def NethackViewer(trace_data: Dict[str, Any]) -> rx.Component:
             spacing="4",
             margin_bottom="1rem",
         ),
-        
         # Turn-by-turn viewer
         rx.tabs(
             rx.tab_list(
-                *[rx.tab(f"Turn {i+1}") for i in range(min(num_turns, 10))],
+                *[rx.tab(f"Turn {i + 1}") for i in range(min(num_turns, 10))],
                 rx.cond(
                     num_turns > 10,
                     rx.tab(f"... +{num_turns - 10} more"),
@@ -49,14 +48,12 @@ def NethackViewer(trace_data: Dict[str, Any]) -> rx.Component:
             ),
             rx.tab_panels(
                 *[
-                    rx.tab_panel(
-                        render_nethack_turn(partitions[i], i)
-                    ) for i in range(min(num_turns, 10))
+                    rx.tab_panel(render_nethack_turn(partitions[i], i))
+                    for i in range(min(num_turns, 10))
                 ],
             ),
             width="100%",
         ),
-        
         width="100%",
         padding="1rem",
         spacing="4",
@@ -68,33 +65,33 @@ def render_nethack_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
     events = partition.get("events", [])
     if not events:
         return rx.text("No events in this turn", color="gray.500")
-    
+
     event = events[0]
-    
+
     # Extract environment steps
     env_steps = event.get("environment_compute_steps", [])
-    
+
     # Collect game state
     messages = []
     stats = {}
     glyphs = None
     actions = []
-    
+
     for step in env_steps:
         outputs = step.get("compute_output", [{}])[0].get("outputs", {})
-        
+
         # Extract messages
         if "message" in outputs:
             messages.append(outputs["message"])
-        
+
         # Extract stats
         if "blstats" in outputs:
             stats = parse_nethack_stats(outputs["blstats"])
-        
+
         # Extract glyphs (ASCII representation)
         if "glyphs" in outputs:
             glyphs = outputs["glyphs"]
-        
+
         # Extract action
         if "action" in outputs:
             action = outputs["action"]
@@ -103,7 +100,7 @@ def render_nethack_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
                 actions.append(action_name)
             else:
                 actions.append(str(action))
-    
+
     return rx.vstack(
         # Actions
         rx.cond(
@@ -118,20 +115,21 @@ def render_nethack_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
                 spacing="2",
             ),
         ),
-        
         # Stats
         rx.cond(
             len(stats) > 0,
             rx.hstack(
                 rx.text("Stats:", font_weight="bold"),
-                rx.badge(f"HP: {stats.get('hp', 0)}/{stats.get('max_hp', 0)}", color_scheme="red"),
+                rx.badge(
+                    f"HP: {stats.get('hp', 0)}/{stats.get('max_hp', 0)}",
+                    color_scheme="red",
+                ),
                 rx.badge(f"Level: {stats.get('level', 1)}", color_scheme="blue"),
                 rx.badge(f"Gold: {stats.get('gold', 0)}", color_scheme="yellow"),
                 rx.badge(f"AC: {stats.get('ac', 10)}", color_scheme="green"),
                 spacing="2",
             ),
         ),
-        
         # Messages
         rx.cond(
             len(messages) > 0,
@@ -150,7 +148,6 @@ def render_nethack_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
                 spacing="2",
             ),
         ),
-        
         # ASCII display (if available)
         rx.cond(
             glyphs is not None,
@@ -172,7 +169,6 @@ def render_nethack_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Componen
                 spacing="2",
             ),
         ),
-        
         spacing="4",
         padding="1rem",
         border="1px solid #eee",
@@ -198,7 +194,7 @@ def format_nethack_glyphs(glyphs: List[List[int]]) -> str:
     # This is a simplified version - real implementation would map glyph IDs to ASCII
     if not glyphs:
         return "No map data available"
-    
+
     # For now, just show dimensions
     return f"Map: {len(glyphs)}x{len(glyphs[0]) if glyphs else 0} (glyph data not rendered)"
 
@@ -208,7 +204,7 @@ def get_nethack_action_name(action_idx: int) -> str:
     # This is a subset of NetHack actions
     action_names = {
         0: "move_nw",
-        1: "move_n", 
+        1: "move_n",
         2: "move_ne",
         3: "move_w",
         4: "wait",

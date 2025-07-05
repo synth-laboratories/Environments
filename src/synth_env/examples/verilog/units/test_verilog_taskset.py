@@ -62,9 +62,7 @@ class TestVerilogTaskset:
         metadata = cast(VerilogTaskInstanceMetadata, instance.metadata)
         assert metadata.problem_name == "test_001"
         assert "AND gate" in metadata.description
-        assert (
-            len(metadata.files_provided) == 3
-        )  # TopModule.v, testbench, RefModule.v
+        assert len(metadata.files_provided) == 3  # TopModule.v, testbench, RefModule.v
 
     @pytest.mark.asyncio
     @patch("src.examples.verilog.taskset.load_dataset")
@@ -247,7 +245,9 @@ class TestVerilogTaskInstance:
         instance = VerilogTaskInstance(
             id=uuid4(),
             impetus=Impetus(instructions="Test"),
-            intent=Intent(rubric={"goal": "Test"}, gold_trajectories=None, gold_state_diff={}),
+            intent=Intent(
+                rubric={"goal": "Test"}, gold_trajectories=None, gold_state_diff={}
+            ),
             metadata=metadata,
             is_reproducible=True,
             initial_engine_snapshot=None,

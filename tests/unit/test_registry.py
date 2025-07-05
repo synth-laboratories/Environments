@@ -111,14 +111,16 @@ class TestRegistry:
 
     def test_get_environment_cls_not_found_tictactoe(self):
         registry = EnvironmentRegistry()
-        with pytest.raises(ValueError, match="Environment type 'NonExistent' not found"):
+        with pytest.raises(
+            ValueError, match="Environment type 'NonExistent' not found"
+        ):
             registry.get_environment_cls("NonExistent")
 
     def test_list_supported_env_types_tictactoe(self):
         registry = EnvironmentRegistry()
         registry.register_environment("TestEnv1", TicTacToeEnvironment)
         registry.register_environment("TestEnv2", TicTacToeEnvironment)
-        
+
         env_types = registry.list_supported_env_types()
         assert "TestEnv1" in env_types
         assert "TestEnv2" in env_types
@@ -127,13 +129,13 @@ class TestRegistry:
         registry = EnvironmentRegistry()
         registry.register_environment("TestEnv1", TicTacToeEnvironment)
         registry.register_environment("TestEnv2", TicTacToeEnvironment)
-        
+
         assert len(registry.list_supported_env_types()) >= 2
 
     def test_overwrite_environment_tictactoe(self):
         registry = EnvironmentRegistry()
         registry.register_environment("TestEnv", TicTacToeEnvironment)
-        
+
         # Should be able to overwrite
         registry.register_environment("TestEnv", TicTacToeEnvironment)
         assert "TestEnv" in registry.list_supported_env_types()

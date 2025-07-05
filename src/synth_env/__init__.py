@@ -11,7 +11,7 @@ from . import examples
 
 __all__ = [
     "environment",
-    "service", 
+    "service",
     "stateful",
     "tasks",
     "examples",

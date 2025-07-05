@@ -14,12 +14,13 @@ from synth_env.stateful.core import StatefulEnvironment
 # Try to import Redis for persistent storage
 try:
     import redis.asyncio as aioredis
+
     REDIS_AVAILABLE = True
     # Create Redis client
     redis_client = aioredis.from_url(
         os.getenv("REDIS_URL", "redis://localhost:6379"),
         encoding="utf-8",
-        decode_responses=False  # We need binary mode for pickle
+        decode_responses=False,  # We need binary mode for pickle
     )
 except ImportError:
     REDIS_AVAILABLE = False
@@ -30,24 +31,27 @@ api_router = APIRouter()
 # Fallback in-memory store if Redis is not available
 instances: Dict[str, StatefulEnvironment] = {}
 
+
 # Storage abstraction
 class InstanceStorage:
     """Abstract storage for environment instances"""
-    
+
     async def store(self, env_id: str, env: StatefulEnvironment):
         """Store an environment instance"""
         if REDIS_AVAILABLE and redis_client:
             try:
                 # Serialize the environment using pickle and base64 encode
-                serialized = base64.b64encode(pickle.dumps(env)).decode('utf-8')
-                await redis_client.set(f"env_instance:{env_id}", serialized, ex=3600)  # 1 hour TTL
+                serialized = base64.b64encode(pickle.dumps(env)).decode("utf-8")
+                await redis_client.set(
+                    f"env_instance:{env_id}", serialized, ex=3600
+                )  # 1 hour TTL
                 print(f"✅ Stored environment {env_id} in Redis")
             except Exception as e:
                 print(f"⚠️ Redis storage failed, using in-memory: {e}")
                 instances[env_id] = env
         else:
             instances[env_id] = env
-    
+
     async def get(self, env_id: str) -> Optional[StatefulEnvironment]:
         """Retrieve an environment instance"""
         if REDIS_AVAILABLE and redis_client:
@@ -59,14 +63,16 @@ class InstanceStorage:
                     print(f"✅ Retrieved environment {env_id} from Redis")
                     return env
                 else:
-                    print(f"❌ Environment {env_id} not found in Redis, checking in-memory store")
+                    print(
+                        f"❌ Environment {env_id} not found in Redis, checking in-memory store"
+                    )
                     return instances.get(env_id)
             except Exception as e:
                 print(f"⚠️ Redis retrieval failed, checking in-memory: {e}")
                 return instances.get(env_id)
         else:
             return instances.get(env_id)
-    
+
     async def remove(self, env_id: str) -> Optional[StatefulEnvironment]:
         """Remove and return an environment instance"""
         if REDIS_AVAILABLE and redis_client:
@@ -83,8 +89,10 @@ class InstanceStorage:
         else:
             return instances.pop(env_id, None)
 
+
 # Global storage instance
 storage = InstanceStorage()
+
 
 # Request/Response models for better API documentation
 class InitializeRequest(BaseModel):
@@ -138,45 +146,87 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
     """Execute a step in the environment."""
     import uuid as uuid_module
     import sys
-    
+
     # Generate unique request ID for this HTTP request
     request_id = str(uuid_module.uuid4())[:8]
-    print(f"🌐 ENVIRONMENTS SERVICE {request_id}: request_id = {request_id}", file=sys.stderr)
-    print(f"\n🌐 ENVIRONMENTS SERVICE {request_id}: step_env HTTP endpoint called", file=sys.stderr)
-    print(f"🌐 ENVIRONMENTS SERVICE {request_id}: env_name = {env_name}", file=sys.stderr)
-    print(f"🌐 ENVIRONMENTS SERVICE {request_id}: env_id = {request.env_id}", file=sys.stderr)
-    print(f"🌐 ENVIRONMENTS SERVICE {request_id}: action = {request.action}", file=sys.stderr)
-    
+    print(
+        f"🌐 ENVIRONMENTS SERVICE {request_id}: request_id = {request_id}",
+        file=sys.stderr,
+    )
+    print(
+        f"\n🌐 ENVIRONMENTS SERVICE {request_id}: step_env HTTP endpoint called",
+        file=sys.stderr,
+    )
+    print(
+        f"🌐 ENVIRONMENTS SERVICE {request_id}: env_name = {env_name}", file=sys.stderr
+    )
+    print(
+        f"🌐 ENVIRONMENTS SERVICE {request_id}: env_id = {request.env_id}",
+        file=sys.stderr,
+    )
+    print(
+        f"🌐 ENVIRONMENTS SERVICE {request_id}: action = {request.action}",
+        file=sys.stderr,
+    )
+
     # Log call stack to see where this HTTP request comes from
     import traceback
+
     stack = traceback.format_stack()
-    print(f"🌐 ENVIRONMENTS SERVICE {request_id}: Call stack (last 3 frames):", file=sys.stderr)
+    print(
+        f"🌐 ENVIRONMENTS SERVICE {request_id}: Call stack (last 3 frames):",
+        file=sys.stderr,
+    )
     for frame in stack[-3:]:
         print(f"  {frame.strip()}", file=sys.stderr)
-    
-    print(f"🌐 ENVIRONMENTS SERVICE {request_id}: About to retrieve environment from storage", file=sys.stderr)
+
+    print(
+        f"🌐 ENVIRONMENTS SERVICE {request_id}: About to retrieve environment from storage",
+        file=sys.stderr,
+    )
     env = await storage.get(request.env_id)
     if not env:
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: Environment not found!", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Environment not found!",
+            file=sys.stderr,
+        )
         raise HTTPException(
             status_code=404, detail=f"Environment instance {request.env_id} not found"
         )
 
     try:
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: About to extract tool calls from action", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: About to extract tool calls from action",
+            file=sys.stderr,
+        )
         # Extract tool calls from action
         tool_calls = request.action.get("tool_calls", [])
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: Extracted tool_calls = {tool_calls}", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Extracted tool_calls = {tool_calls}",
+            file=sys.stderr,
+        )
 
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: About to call env.step()", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: About to call env.step()",
+            file=sys.stderr,
+        )
         # Execute step
         result = await env.step(tool_calls)
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: env.step() completed, result type = {type(result)}", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: env.step() completed, result type = {type(result)}",
+            file=sys.stderr,
+        )
 
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: About to store environment back to storage", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: About to store environment back to storage",
+            file=sys.stderr,
+        )
         # Store the updated environment state
         await storage.store(request.env_id, env)
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: Environment stored successfully", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Environment stored successfully",
+            file=sys.stderr,
+        )
 
         # Format response
         response = {
@@ -185,10 +235,16 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
             "done": result.get("done", False),
             "info": result.get("info", {}),
         }
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: Returning response with keys: {list(response.keys())}", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Returning response with keys: {list(response.keys())}",
+            file=sys.stderr,
+        )
         return response
     except Exception as e:
-        print(f"🌐 ENVIRONMENTS SERVICE {request_id}: Exception during step: {type(e).__name__} - {e}", file=sys.stderr)
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Exception during step: {type(e).__name__} - {e}",
+            file=sys.stderr,
+        )
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -227,7 +283,7 @@ async def create_env_legacy(
     task = SimpleNamespace(initial_engine_snapshot=initial_state)
     env = cls(task)
     instance_id = str(uuid4())
-    
+
     # Initialize the environment before storing (fixes Redis initialization bug)
     await env.initialize()
     await storage.store(instance_id, env)

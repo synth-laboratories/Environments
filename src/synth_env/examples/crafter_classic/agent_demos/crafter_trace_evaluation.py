@@ -25,47 +25,62 @@ import uvicorn
 
 # Import synth-sdk trace structures
 from synth_sdk.tracing.abstractions import (
-    SystemTrace, EventPartitionElement, Event, AgentComputeStep, 
-    EnvironmentComputeStep, MessageInputs, MessageOutputs, 
-    ArbitraryInputs, ArbitraryOutputs, TrainingQuestion, RewardSignal, Dataset
+    SystemTrace,
+    EventPartitionElement,
+    Event,
+    AgentComputeStep,
+    EnvironmentComputeStep,
+    MessageInputs,
+    MessageOutputs,
+    ArbitraryInputs,
+    ArbitraryOutputs,
+    TrainingQuestion,
+    RewardSignal,
+    Dataset,
 )
 
 # Import base evaluation framework
 from src.synth_env.examples.crafter_classic.agent_demos.eval_framework import (
-    CrafterEvalFramework, TrajectoryResult, AggregateResults,
-    ACHIEVEMENT_CATEGORIES, ALL_ACHIEVEMENTS, TERMINATION_REASONS,
-    crafter_score, balrog_score
+    CrafterEvalFramework,
+    TrajectoryResult,
+    AggregateResults,
+    ACHIEVEMENT_CATEGORIES,
+    ALL_ACHIEVEMENTS,
+    TERMINATION_REASONS,
+    crafter_score,
+    balrog_score,
 )
 
 # Action names mapping for Crafter
 ACTION_NAMES = {
-    -1: 'initial_state',
-    0: 'noop',
-    1: 'move_left', 
-    2: 'move_right',
-    3: 'move_up',
-    4: 'move_down',
-    5: 'do',
-    6: 'sleep',
-    7: 'place_stone',
-    8: 'place_table',
-    9: 'place_furnace',
-    10: 'place_plant',
-    11: 'make_wood_pickaxe',
-    12: 'make_stone_pickaxe',
-    13: 'make_iron_pickaxe',
-    14: 'make_wood_sword',
-    15: 'make_stone_sword',
-    16: 'make_iron_sword'
+    -1: "initial_state",
+    0: "noop",
+    1: "move_left",
+    2: "move_right",
+    3: "move_up",
+    4: "move_down",
+    5: "do",
+    6: "sleep",
+    7: "place_stone",
+    8: "place_table",
+    9: "place_furnace",
+    10: "place_plant",
+    11: "make_wood_pickaxe",
+    12: "make_stone_pickaxe",
+    13: "make_iron_pickaxe",
+    14: "make_wood_sword",
+    15: "make_stone_sword",
+    16: "make_iron_sword",
 }
+
 
 class FullCrafterEvalFramework(CrafterEvalFramework):
     """Extended evaluation framework with trace capture and visualization."""
-    
+
     def __init__(self, capture_images: bool = True, output_dir: Optional[str] = None):
         super().__init__()
         self.capture_images = capture_images
-        
+
         # Use standardized eval directory structure
         if output_dir is None:
             # Create timestamp-based directory under src/evals/
@@ -73,70 +88,85 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
             self.output_dir = Path("src/evals") / "crafter" / f"run_{timestamp}"
         else:
             self.output_dir = Path(output_dir)
-            
+
         self.traces_dir = self.output_dir / "traces"
         self.viewer_dir = self.output_dir / "viewer"
-        
+
         # Create directories
         self.traces_dir.mkdir(parents=True, exist_ok=True)
         self.viewer_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Store traces and datasets
         self.system_traces: Dict[str, SystemTrace] = {}
         self.datasets: Dict[str, Dataset] = {}
-    
+
     def _encode_image_to_base64(self, rgb_array: np.ndarray) -> str:
         """Convert RGB numpy array to base64 PNG string."""
-        image = Image.fromarray(rgb_array.astype('uint8'), 'RGB')
+        image = Image.fromarray(rgb_array.astype("uint8"), "RGB")
         buffer = io.BytesIO()
-        image.save(buffer, format='PNG')
+        image.save(buffer, format="PNG")
         buffer.seek(0)
-        return base64.b64encode(buffer.read()).decode('utf-8')
-    
+        return base64.b64encode(buffer.read()).decode("utf-8")
+
     async def run_single_trajectory_with_trace(
-        self, 
+        self,
         model_name: str,
-        difficulty: str, 
+        difficulty: str,
         seed: int,
         max_turns: int = 30,
-        collect_detailed_data: bool = True
+        collect_detailed_data: bool = True,
     ) -> TrajectoryResult:
         """Run a single trajectory with comprehensive trace capture."""
-        from src.synth_env.examples.crafter_classic.agent_demos.test_synth_react import ReActAgent, CrafterHistoryObservationCallable, CrafterMove
-        from src.synth_env.examples.crafter_classic.environment import CrafterClassicEnvironment
-        from src.synth_env.examples.crafter_classic.taskset import CrafterTaskInstance, CrafterTaskInstanceMetadata
+        from src.synth_env.examples.crafter_classic.agent_demos.test_synth_react import (
+            ReActAgent,
+            CrafterHistoryObservationCallable,
+            CrafterMove,
+        )
+        from src.synth_env.examples.crafter_classic.environment import (
+            CrafterClassicEnvironment,
+        )
+        from src.synth_env.examples.crafter_classic.taskset import (
+            CrafterTaskInstance,
+            CrafterTaskInstanceMetadata,
+        )
         from src.synth_env.tasks.core import Impetus, Intent
         from synth_ai.zyk import LM
-        
+
         # Create task instance
         metadata = CrafterTaskInstanceMetadata(
             difficulty=difficulty,
             seed=seed,
-            num_trees_radius=0, num_cows_radius=0, num_hostiles_radius=0
+            num_trees_radius=0,
+            num_cows_radius=0,
+            num_hostiles_radius=0,
         )
         instance = CrafterTaskInstance(
             id=uuid.uuid4(),
-            impetus=Impetus(instructions=f"Survive and unlock achievements in a {difficulty} environment."),
+            impetus=Impetus(
+                instructions=f"Survive and unlock achievements in a {difficulty} environment."
+            ),
             intent=Intent(rubric={}, gold_trajectories=None, gold_state_diff={}),
             metadata=metadata,
             is_reproducible=True,
             initial_engine_snapshot=None,
         )
-        
+
         # Setup environment and agent
         hist_cb = CrafterHistoryObservationCallable(max_history=1)
         env = CrafterClassicEnvironment(instance, custom_step_obs=hist_cb)
-        
-        llm = LM(model_name=model_name, formatting_model_name=model_name, temperature=0.0)
+
+        llm = LM(
+            model_name=model_name, formatting_model_name=model_name, temperature=0.0
+        )
         agent = ReActAgent(llm, max_turns=max_turns)
-        
+
         # Initialize tracking
         trajectory_id = str(uuid.uuid4())
         achievements_unlocked = set()
         achievement_turn_unlocked = {}
         actions_per_turn = []
         turn_by_turn_data = [] if collect_detailed_data else None
-        
+
         # Initialize SystemTrace
         system_trace = SystemTrace(
             system_name="crafter_evaluation",
@@ -147,150 +177,188 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
                 "model_name": model_name,
                 "difficulty": difficulty,
                 "seed": seed,
-                "max_turns": max_turns
+                "max_turns": max_turns,
             },
             instance_metadata={
                 "start_time": datetime.now().isoformat(),
-                "capture_images": self.capture_images
-            }
+                "capture_images": self.capture_images,
+            },
         )
-        
+
         # Create TrainingQuestion for this trajectory
         training_question = TrainingQuestion(
             id=trajectory_id,
             intent=f"Survive and unlock achievements in a {difficulty} Crafter environment (seed={seed})",
-            criteria="Maximize the number of achievements unlocked and survive as long as possible"
+            criteria="Maximize the number of achievements unlocked and survive as long as possible",
         )
-        
+
         # Run episode
         obs_payload = await env.initialize()
         turn_count = 0
         termination_reason = "unknown"
         partition_index = 0
-        
+
         # Create progress bar for this trajectory
         pbar = tqdm(
-            total=max_turns, 
-            desc=f"{model_name} ({difficulty}) Seed {seed}", 
+            total=max_turns,
+            desc=f"{model_name} ({difficulty}) Seed {seed}",
             unit="turn",
             leave=False,
-            ncols=100
+            ncols=100,
         )
-        
+
         try:
             while turn_count < max_turns:
                 turn_count += 1
                 pbar.update(1)
-                
+
                 # Track achievements
-                easy_count = len([a for a in achievements_unlocked if a in ACHIEVEMENT_CATEGORIES["easy"]])
-                medium_count = len([a for a in achievements_unlocked if a in ACHIEVEMENT_CATEGORIES["medium"]])
-                hard_count = len([a for a in achievements_unlocked if a in ACHIEVEMENT_CATEGORIES["hard"]])
+                easy_count = len(
+                    [
+                        a
+                        for a in achievements_unlocked
+                        if a in ACHIEVEMENT_CATEGORIES["easy"]
+                    ]
+                )
+                medium_count = len(
+                    [
+                        a
+                        for a in achievements_unlocked
+                        if a in ACHIEVEMENT_CATEGORIES["medium"]
+                    ]
+                )
+                hard_count = len(
+                    [
+                        a
+                        for a in achievements_unlocked
+                        if a in ACHIEVEMENT_CATEGORIES["hard"]
+                    ]
+                )
                 total_count = len(achievements_unlocked)
-                
-                achievement_display = f"{total_count}({easy_count}/{medium_count}/{hard_count})"
-                
-                pbar.set_postfix({
-                    "achievements": achievement_display,
-                    "steps": obs_payload.get("public", {}).num_steps_taken if hasattr(obs_payload.get("public", {}), "num_steps_taken") else 0
-                })
-                
+
+                achievement_display = (
+                    f"{total_count}({easy_count}/{medium_count}/{hard_count})"
+                )
+
+                pbar.set_postfix(
+                    {
+                        "achievements": achievement_display,
+                        "steps": obs_payload.get("public", {}).num_steps_taken
+                        if hasattr(obs_payload.get("public", {}), "num_steps_taken")
+                        else 0,
+                    }
+                )
+
                 current_formatted_obs = obs_payload["formatted_obs"]
-                
+
                 # Track achievements at start of turn
                 current_achievements = set()
-                if "public" in obs_payload and hasattr(obs_payload["public"], "achievements_status"):
+                if "public" in obs_payload and hasattr(
+                    obs_payload["public"], "achievements_status"
+                ):
                     current_achievements = {
-                        ach for ach, status in obs_payload["public"].achievements_status.items() 
+                        ach
+                        for ach, status in obs_payload[
+                            "public"
+                        ].achievements_status.items()
                         if status
                     }
-                
+
                 # Check for new achievements
                 new_achievements = current_achievements - achievements_unlocked
                 for ach in new_achievements:
                     achievements_unlocked.add(ach)
                     achievement_turn_unlocked[ach] = turn_count
                     agent.current_achievements.add(ach)
-                
+
                 # Create EventPartitionElement for this turn
                 event_partition = EventPartitionElement(
-                    partition_index=partition_index,
-                    events=[]
+                    partition_index=partition_index, events=[]
                 )
-                
+
                 # Capture initial state image before actions
                 initial_image = None
                 if self.capture_images and turn_count == 1:
                     try:
-                        if hasattr(env, 'engine') and hasattr(env.engine, 'env'):
+                        if hasattr(env, "engine") and hasattr(env.engine, "env"):
                             crafter_env = env.engine.env
-                            if hasattr(crafter_env, '_render_mode'):
-                                crafter_env._render_mode = 'rgb_array'
+                            if hasattr(crafter_env, "_render_mode"):
+                                crafter_env._render_mode = "rgb_array"
                             initial_rgb = crafter_env.render()
                             if initial_rgb is not None:
-                                initial_image = self._encode_image_to_base64(initial_rgb)
+                                initial_image = self._encode_image_to_base64(
+                                    initial_rgb
+                                )
                                 print(f"✓ Initial state captured before actions")
                     except Exception as e:
                         print(f"Warning: Failed to capture initial image: {e}")
-                
+
                 # Agent decision phase
                 agent_compute_began = datetime.now()
-                
+
                 # Create proper system and user prompts
                 system_prompt = "You are playing Crafter. Your goal is to survive and unlock as many achievements as possible."
-                
+
                 # Get agent decision with proper message structure
                 agent_decision = await agent.decide(current_formatted_obs, obs_payload)
                 agent_compute_ended = datetime.now()
-                
+
                 if agent_decision == [-1]:  # Agent terminated
                     termination_reason = "agent_quit"
                     break
-                    
+
                 action_sequence = agent_decision
                 actions_per_turn.append(len(action_sequence))
-                
+
                 # Create proper tool calls for the actions
-                tool_calls = [{
-                    "id": f"crafter_action_{turn_count}",
-                    "type": "function",
-                    "function": {
-                        "name": "crafter_interact",
-                        "arguments": json.dumps({
-                            "actions": action_sequence,
-                            "reasoning": f"Executing {len(action_sequence)} actions: {[ACTION_NAMES.get(act, f'action_{act}') for act in action_sequence]}"
-                        })
+                tool_calls = [
+                    {
+                        "id": f"crafter_action_{turn_count}",
+                        "type": "function",
+                        "function": {
+                            "name": "crafter_interact",
+                            "arguments": json.dumps(
+                                {
+                                    "actions": action_sequence,
+                                    "reasoning": f"Executing {len(action_sequence)} actions: {[ACTION_NAMES.get(act, f'action_{act}') for act in action_sequence]}",
+                                }
+                            ),
+                        },
                     }
-                }]
-                
-                tool_results = [{
-                    "tool_call_id": f"crafter_action_{turn_count}",
-                    "content": f"Planned actions: {[ACTION_NAMES.get(act, f'action_{act}') for act in action_sequence]}"
-                }]
-                
+                ]
+
+                tool_results = [
+                    {
+                        "tool_call_id": f"crafter_action_{turn_count}",
+                        "content": f"Planned actions: {[ACTION_NAMES.get(act, f'action_{act}') for act in action_sequence]}",
+                    }
+                ]
+
                 # Create input messages
                 input_messages = [
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": current_formatted_obs}
+                    {"role": "user", "content": current_formatted_obs},
                 ]
-                
+
                 # Create output messages with tool calls
                 output_messages = [
                     {
-                        "role": "assistant", 
+                        "role": "assistant",
                         "content": f"I need to execute {len(action_sequence)} actions to progress in the game: {[ACTION_NAMES.get(act, f'action_{act}') for act in action_sequence]}",
-                        "tool_calls": tool_calls
+                        "tool_calls": tool_calls,
                     }
                 ]
-                
+
                 # Add tool results
                 for tool_result in tool_results:
-                    output_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_result["tool_call_id"],
-                        "content": tool_result["content"]
-                    })
-                
+                    output_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_result["tool_call_id"],
+                            "content": tool_result["content"],
+                        }
+                    )
+
                 # Create AgentComputeStep with proper message structure
                 agent_compute_step = AgentComputeStep(
                     event_order=0,
@@ -300,9 +368,9 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
                     compute_output=[MessageOutputs(messages=output_messages)],
                     model_name=model_name,
                     model_params={"temperature": 0.0},
-                    should_learn=True
+                    should_learn=True,
                 )
-                
+
                 # Collect turn data
                 if collect_detailed_data:
                     turn_data = {
@@ -310,190 +378,244 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
                         "actions_planned": len(action_sequence),
                         "achievements_at_start": list(current_achievements),
                         "new_achievements_this_turn": list(new_achievements),
-                        "steps_before_turn": obs_payload.get("public", {}).num_steps_taken if hasattr(obs_payload.get("public", {}), "num_steps_taken") else 0
+                        "steps_before_turn": obs_payload.get(
+                            "public", {}
+                        ).num_steps_taken
+                        if hasattr(obs_payload.get("public", {}), "num_steps_taken")
+                        else 0,
                     }
                     turn_by_turn_data.append(turn_data)
-                
+
                 # Execute actions and collect environment steps
                 environment_compute_steps = []
-                
+
                 # Add initial state as first "step" if we have it
                 if initial_image and turn_count == 1:
                     initial_step = EnvironmentComputeStep(
                         event_order=0,
                         compute_began=agent_compute_began,
                         compute_ended=agent_compute_began,
-                        compute_input=[ArbitraryInputs(inputs={"action": "initial_state"})],
-                        compute_output=[ArbitraryOutputs(outputs={
-                            "action_index": -1,  # Special index for initial state
-                            "action_order": -1,
-                            "image_base64": initial_image,
-                            "error": None,
-                            "terminated": False,
-                            "truncated": False,
-                            "reward": 0.0,
-                            "total_reward": 0.0,
-                            "num_steps": 0
-                        })]
+                        compute_input=[
+                            ArbitraryInputs(inputs={"action": "initial_state"})
+                        ],
+                        compute_output=[
+                            ArbitraryOutputs(
+                                outputs={
+                                    "action_index": -1,  # Special index for initial state
+                                    "action_order": -1,
+                                    "image_base64": initial_image,
+                                    "error": None,
+                                    "terminated": False,
+                                    "truncated": False,
+                                    "reward": 0.0,
+                                    "total_reward": 0.0,
+                                    "num_steps": 0,
+                                }
+                            )
+                        ],
                     )
                     environment_compute_steps.append(initial_step)
-                
+
                 for i, act_idx in enumerate(action_sequence):
                     env_compute_began = datetime.now()
-                    
+
                     # Execute action
                     obs_payload = await env.step([[CrafterMove(act_idx)]])
                     env_compute_ended = datetime.now()
-                    
+
                     # Capture image after step if enabled
                     post_step_image = None
                     if self.capture_images:
                         try:
                             # Access the underlying crafter environment through the engine
-                            if hasattr(env, 'engine') and hasattr(env.engine, 'env'):
+                            if hasattr(env, "engine") and hasattr(env.engine, "env"):
                                 # Force render mode to 'rgb_array' if needed
                                 crafter_env = env.engine.env
-                                if hasattr(crafter_env, '_render_mode'):
-                                    crafter_env._render_mode = 'rgb_array'
-                                
+                                if hasattr(crafter_env, "_render_mode"):
+                                    crafter_env._render_mode = "rgb_array"
+
                                 rgb_array = crafter_env.render()
                                 if rgb_array is not None:
-                                    post_step_image = self._encode_image_to_base64(rgb_array)
+                                    post_step_image = self._encode_image_to_base64(
+                                        rgb_array
+                                    )
                                     # Debug: check if images are different
-                                    if turn_count == 1 and i < 3:  # Debug first turn, first 3 actions
-                                        print(f"✓ Action {i} ({act_idx}): Image captured, first pixel: {rgb_array[0,0]}, shape: {rgb_array.shape}")
+                                    if (
+                                        turn_count == 1 and i < 3
+                                    ):  # Debug first turn, first 3 actions
+                                        print(
+                                            f"✓ Action {i} ({act_idx}): Image captured, first pixel: {rgb_array[0, 0]}, shape: {rgb_array.shape}"
+                                        )
                                 else:
                                     print(f"Warning: render() returned None")
                             else:
-                                print(f"Warning: Cannot access env.engine.env for rendering")
+                                print(
+                                    f"Warning: Cannot access env.engine.env for rendering"
+                                )
                         except Exception as e:
                             print(f"Warning: Failed to capture image: {e}")
-                    
+
                     # Create EnvironmentComputeStep
                     env_outputs = {
                         "action_index": act_idx,
                         "action_order": i,
                         "error": obs_payload.get("error", None),
-                        "terminated": obs_payload.get("private", {}).terminated if hasattr(obs_payload.get("private", {}), "terminated") else False,
-                        "truncated": obs_payload.get("private", {}).truncated if hasattr(obs_payload.get("private", {}), "truncated") else False,
-                        "reward": obs_payload.get("private", {}).reward if hasattr(obs_payload.get("private", {}), "reward") else 0.0,
-                        "total_reward": obs_payload.get("private", {}).total_reward_episode if hasattr(obs_payload.get("private", {}), "total_reward_episode") else 0.0,
-                        "num_steps": obs_payload.get("public", {}).num_steps_taken if hasattr(obs_payload.get("public", {}), "num_steps_taken") else 0
+                        "terminated": obs_payload.get("private", {}).terminated
+                        if hasattr(obs_payload.get("private", {}), "terminated")
+                        else False,
+                        "truncated": obs_payload.get("private", {}).truncated
+                        if hasattr(obs_payload.get("private", {}), "truncated")
+                        else False,
+                        "reward": obs_payload.get("private", {}).reward
+                        if hasattr(obs_payload.get("private", {}), "reward")
+                        else 0.0,
+                        "total_reward": obs_payload.get(
+                            "private", {}
+                        ).total_reward_episode
+                        if hasattr(
+                            obs_payload.get("private", {}), "total_reward_episode"
+                        )
+                        else 0.0,
+                        "num_steps": obs_payload.get("public", {}).num_steps_taken
+                        if hasattr(obs_payload.get("public", {}), "num_steps_taken")
+                        else 0,
                     }
-                    
+
                     # Add image if captured
                     if post_step_image:
                         env_outputs["image_base64"] = post_step_image
-                    
+
                     # Add player stats
                     if hasattr(obs_payload.get("private", {}), "player_internal_stats"):
                         stats = obs_payload["private"].player_internal_stats
                         env_outputs["player_stats"] = {
                             "health": stats.get("health"),
                             "food": stats.get("food"),
-                            "drink": stats.get("drink")
+                            "drink": stats.get("drink"),
                         }
-                    
+
                     # Adjust event order if we have initial state
-                    event_order = i + 2 if (initial_image and turn_count == 1) else i + 1
+                    event_order = (
+                        i + 2 if (initial_image and turn_count == 1) else i + 1
+                    )
                     env_compute_step = EnvironmentComputeStep(
                         event_order=event_order,
                         compute_began=env_compute_began,
                         compute_ended=env_compute_ended,
                         compute_input=[ArbitraryInputs(inputs={"action": act_idx})],
-                        compute_output=[ArbitraryOutputs(outputs=env_outputs)]
+                        compute_output=[ArbitraryOutputs(outputs=env_outputs)],
                     )
                     environment_compute_steps.append(env_compute_step)
-                    
+
                     if "error" in obs_payload:
                         termination_reason = "environment_error"
                         break
-                        
-                    if obs_payload["private"].terminated or obs_payload["private"].truncated:
-                        termination_reason = "timeout" if obs_payload["private"].truncated else "death"
+
+                    if (
+                        obs_payload["private"].terminated
+                        or obs_payload["private"].truncated
+                    ):
+                        termination_reason = (
+                            "timeout" if obs_payload["private"].truncated else "death"
+                        )
                         break
-                
+
                 # Create Event for this turn
                 event = Event(
                     system_instance_id=trajectory_id,
                     event_type="turn",
                     opened=agent_compute_began,
-                    closed=environment_compute_steps[-1].compute_ended if environment_compute_steps else agent_compute_ended,
+                    closed=environment_compute_steps[-1].compute_ended
+                    if environment_compute_steps
+                    else agent_compute_ended,
                     partition_index=partition_index,
                     agent_compute_step=agent_compute_step,
                     environment_compute_steps=environment_compute_steps,
                     event_metadata={
                         "turn_number": turn_count,
                         "new_achievements": list(new_achievements),
-                        "total_achievements": len(achievements_unlocked)
-                    }
+                        "total_achievements": len(achievements_unlocked),
+                    },
                 )
-                
+
                 event_partition.events.append(event)
                 system_trace.partition.append(event_partition)
                 partition_index += 1
-                        
+
                 if termination_reason in ["environment_error", "timeout", "death"]:
                     break
-            
+
             # Final metrics
             if termination_reason == "unknown":
                 termination_reason = "timeout"
-                
+
             final_private = obs_payload.get("private")
             final_public = obs_payload.get("public")
-            
-            total_steps = final_public.num_steps_taken if hasattr(final_public, "num_steps_taken") else 0
-            total_reward = final_private.total_reward_episode if hasattr(final_private, "total_reward_episode") else 0.0
-            
+
+            total_steps = (
+                final_public.num_steps_taken
+                if hasattr(final_public, "num_steps_taken")
+                else 0
+            )
+            total_reward = (
+                final_private.total_reward_episode
+                if hasattr(final_private, "total_reward_episode")
+                else 0.0
+            )
+
             # Health/survival stats
             final_health = None
-            final_food = None  
+            final_food = None
             final_drink = None
             if hasattr(final_private, "player_internal_stats"):
                 stats = final_private.player_internal_stats
                 final_health = stats.get("health")
                 final_food = stats.get("food")
                 final_drink = stats.get("drink")
-            
+
             # Success determination
             success = len(achievements_unlocked) > 0 or (
                 hasattr(final_private, "terminated") and final_private.terminated
             )
-            
-            avg_actions_per_turn = sum(actions_per_turn) / len(actions_per_turn) if actions_per_turn else 0.0
-            
+
+            avg_actions_per_turn = (
+                sum(actions_per_turn) / len(actions_per_turn)
+                if actions_per_turn
+                else 0.0
+            )
+
             # Create RewardSignal
-            hafner_score_value = crafter_score([
-                (achievement_turn_unlocked.get(ach, 0) > 0) * 100.0 
-                for ach in ALL_ACHIEVEMENTS
-            ])
-            
+            hafner_score_value = crafter_score(
+                [
+                    (achievement_turn_unlocked.get(ach, 0) > 0) * 100.0
+                    for ach in ALL_ACHIEVEMENTS
+                ]
+            )
+
             reward_signal = RewardSignal(
                 question_id=trajectory_id,
                 system_instance_id=trajectory_id,
                 reward=hafner_score_value,
-                annotation=f"Termination: {termination_reason}, Achievements: {len(achievements_unlocked)}/22"
+                annotation=f"Termination: {termination_reason}, Achievements: {len(achievements_unlocked)}/22",
             )
-            
+
             # Create Dataset
             dataset = Dataset(
-                questions=[training_question],
-                reward_signals=[reward_signal]
+                questions=[training_question], reward_signals=[reward_signal]
             )
-            
+
             # Store trace and dataset
             self.system_traces[trajectory_id] = system_trace
             self.datasets[trajectory_id] = dataset
-            
+
             # Save to disk
             self._save_trace_to_disk(trajectory_id, system_trace, dataset)
-            
+
             # Create trajectory result
             result = TrajectoryResult(
                 trajectory_id=trajectory_id,
                 model_name=model_name,
-                difficulty=difficulty, 
+                difficulty=difficulty,
                 seed=seed,
                 success=success,
                 total_steps=total_steps,
@@ -507,34 +629,36 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
                 final_health=final_health,
                 final_food=final_food,
                 final_drink=final_drink,
-                turn_by_turn_data=turn_by_turn_data
+                turn_by_turn_data=turn_by_turn_data,
             )
-            
+
             return result
-            
+
         finally:
             pbar.close()
-    
-    def _save_trace_to_disk(self, trajectory_id: str, trace: SystemTrace, dataset: Dataset):
+
+    def _save_trace_to_disk(
+        self, trajectory_id: str, trace: SystemTrace, dataset: Dataset
+    ):
         """Save trace and dataset to JSON file."""
         trace_file = self.traces_dir / f"{trajectory_id}.json"
-        
+
         trace_data = {
             "trace": trace.to_dict(),
             "dataset": dataset.to_dict(),
             "metadata": {
                 "saved_at": datetime.now().isoformat(),
-                "trajectory_id": trajectory_id
-            }
+                "trajectory_id": trajectory_id,
+            },
         }
-        
-        with open(trace_file, 'w') as f:
+
+        with open(trace_file, "w") as f:
             json.dump(trace_data, f, indent=2)
-    
+
     def _save_evaluation_summary(self, report: Dict[str, Any]):
         """Save evaluation summary and metadata."""
         summary_file = self.output_dir / "evaluation_summary.json"
-        
+
         # Extract key metrics for summary
         summary_data = {
             "evaluation_metadata": {
@@ -542,47 +666,61 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
                 "output_directory": str(self.output_dir),
                 "traces_directory": str(self.traces_dir),
                 "viewer_directory": str(self.viewer_dir),
-                "num_trajectories": len(self.trajectory_results)
+                "num_trajectories": len(self.trajectory_results),
             },
-            "evaluation_summary": report.get("evaluation_summary").to_dict() if hasattr(report.get("evaluation_summary"), "to_dict") else None,
+            "evaluation_summary": report.get("evaluation_summary").to_dict()
+            if hasattr(report.get("evaluation_summary"), "to_dict")
+            else None,
             "traces_info": report.get("traces"),
-            "models_evaluated": list(set(t.model_name for t in self.trajectory_results)),
-            "difficulties_evaluated": list(set(t.difficulty for t in self.trajectory_results))
+            "models_evaluated": list(
+                set(t.model_name for t in self.trajectory_results)
+            ),
+            "difficulties_evaluated": list(
+                set(t.difficulty for t in self.trajectory_results)
+            ),
         }
-        
-        with open(summary_file, 'w') as f:
+
+        with open(summary_file, "w") as f:
             json.dump(summary_data, f, indent=2)
-        
+
         # Also save the full report as CSV tables
-        if "evaluation_summary" in report and hasattr(report["evaluation_summary"], "to_csv"):
-            report["evaluation_summary"].to_csv(self.output_dir / "summary_table.csv", index=False)
-        
-        if "trajectory_by_trajectory_breakdown" in report and hasattr(report["trajectory_by_trajectory_breakdown"], "to_csv"):
-            report["trajectory_by_trajectory_breakdown"].to_csv(self.output_dir / "trajectories.csv", index=False)
-    
+        if "evaluation_summary" in report and hasattr(
+            report["evaluation_summary"], "to_csv"
+        ):
+            report["evaluation_summary"].to_csv(
+                self.output_dir / "summary_table.csv", index=False
+            )
+
+        if "trajectory_by_trajectory_breakdown" in report and hasattr(
+            report["trajectory_by_trajectory_breakdown"], "to_csv"
+        ):
+            report["trajectory_by_trajectory_breakdown"].to_csv(
+                self.output_dir / "trajectories.csv", index=False
+            )
+
     async def run_evaluation(
         self,
         model_names: List[str],
         difficulties: List[str] = ["easy", "hard"],
         num_trajectories_per_condition: int = 3,
         max_turns: int = 30,
-        collect_detailed_data: bool = True
+        collect_detailed_data: bool = True,
     ) -> Dict[str, Any]:
         """Run comprehensive evaluation with trace capture."""
-        
+
         print(f"🎯 Starting Full Enchilada Crafter Evaluation")
         print(f"   Models: {model_names}")
-        print(f"   Difficulties: {difficulties}")  
+        print(f"   Difficulties: {difficulties}")
         print(f"   Trajectories per condition: {num_trajectories_per_condition}")
         print(f"   Max turns per trajectory: {max_turns}")
         print(f"   Output directory: {self.output_dir}")
-        
+
         all_results = []
-        
+
         for model_name in model_names:
             for difficulty in difficulties:
                 print(f"\n🔄 Running {model_name} on {difficulty} difficulty...")
-                
+
                 # Run trajectories for this condition
                 trajectory_tasks = []
                 for i in range(num_trajectories_per_condition):
@@ -593,36 +731,36 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
                             difficulty=difficulty,
                             seed=seed,
                             max_turns=max_turns,
-                            collect_detailed_data=collect_detailed_data
+                            collect_detailed_data=collect_detailed_data,
                         )
                     )
-                
+
                 condition_results = await asyncio.gather(*trajectory_tasks)
                 all_results.extend(condition_results)
-        
+
         self.trajectory_results = all_results
-        
+
         # Generate report
         report = self._generate_comprehensive_report()
-        
+
         # Create viewer files
         self._create_viewer_files()
-        
+
         # Add trace info to report
         report["traces"] = {
             "count": len(self.system_traces),
             "directory": str(self.traces_dir),
-            "viewer_url": f"http://localhost:8999"
+            "viewer_url": f"http://localhost:8999",
         }
-        
+
         # Save evaluation summary
         self._save_evaluation_summary(report)
-        
+
         return report
-    
+
     def _create_viewer_files(self):
         """Create the viewer HTML/JS/CSS files."""
-        
+
         # Create index.html
         html_content = """<!DOCTYPE html>
 <html lang="en">
@@ -676,7 +814,7 @@ class FullCrafterEvalFramework(CrafterEvalFramework):
     <script src="viewer.js"></script>
 </body>
 </html>"""
-        
+
         # Create style.css
         css_content = """* {
     margin: 0;
@@ -964,7 +1102,7 @@ body {
         grid-template-columns: 1fr;
     }
 }"""
-        
+
         # Create viewer.js
         js_content = """let currentTrace = null;
 let currentTurnIndex = null;
@@ -1180,28 +1318,31 @@ document.getElementById('refresh-btn').addEventListener('click', () => {
 
 // Initial load
 loadTraceList();"""
-        
+
         # Save files
-        with open(self.viewer_dir / "index.html", 'w') as f:
+        with open(self.viewer_dir / "index.html", "w") as f:
             f.write(html_content)
-        
-        with open(self.viewer_dir / "style.css", 'w') as f:
+
+        with open(self.viewer_dir / "style.css", "w") as f:
             f.write(css_content)
-        
-        with open(self.viewer_dir / "viewer.js", 'w') as f:
+
+        with open(self.viewer_dir / "viewer.js", "w") as f:
             f.write(js_content)
 
 
 # Global variable to store current eval directory
 _current_eval_dir = None
 
+
 def set_current_eval_dir(eval_dir: Path):
     """Set the current evaluation directory for the viewer."""
     global _current_eval_dir
     _current_eval_dir = eval_dir
 
+
 # FastAPI app for viewer
 app = FastAPI()
+
 
 @app.get("/api/traces")
 async def get_traces():
@@ -1209,27 +1350,30 @@ async def get_traces():
     global _current_eval_dir
     if _current_eval_dir is None:
         return []
-        
+
     traces_dir = _current_eval_dir / "traces"
     if not traces_dir.exists():
         return []
-    
+
     traces = []
     for trace_file in traces_dir.glob("*.json"):
         try:
-            with open(trace_file, 'r') as f:
+            with open(trace_file, "r") as f:
                 data = json.load(f)
                 trace_meta = data["trace"]["metadata"]
-                traces.append({
-                    "id": trace_file.stem,
-                    "model_name": trace_meta["model_name"],
-                    "difficulty": trace_meta["difficulty"],
-                    "seed": trace_meta["seed"]
-                })
+                traces.append(
+                    {
+                        "id": trace_file.stem,
+                        "model_name": trace_meta["model_name"],
+                        "difficulty": trace_meta["difficulty"],
+                        "seed": trace_meta["seed"],
+                    }
+                )
         except Exception as e:
             print(f"Error loading trace {trace_file}: {e}")
-    
+
     return sorted(traces, key=lambda x: x["id"])
+
 
 @app.get("/api/trace/{trace_id}")
 async def get_trace(trace_id: str):
@@ -1237,13 +1381,14 @@ async def get_trace(trace_id: str):
     global _current_eval_dir
     if _current_eval_dir is None:
         raise HTTPException(status_code=404, detail="No evaluation directory set")
-        
+
     trace_file = _current_eval_dir / "traces" / f"{trace_id}.json"
     if not trace_file.exists():
         raise HTTPException(status_code=404, detail="Trace not found")
-    
-    with open(trace_file, 'r') as f:
+
+    with open(trace_file, "r") as f:
         return json.load(f)
+
 
 @app.get("/api/eval_info")
 async def get_eval_info():
@@ -1251,10 +1396,10 @@ async def get_eval_info():
     global _current_eval_dir
     if _current_eval_dir is None:
         return {"error": "No evaluation directory set"}
-    
+
     summary_file = _current_eval_dir / "evaluation_summary.json"
     if summary_file.exists():
-        with open(summary_file, 'r') as f:
+        with open(summary_file, "r") as f:
             return json.load(f)
     return {"error": "No evaluation summary found"}
 
@@ -1262,41 +1407,47 @@ async def get_eval_info():
 # Convenience function for running evaluation
 async def run_full_crafter_eval(
     model_names: List[str],
-    difficulties: List[str] = ["easy", "hard"], 
+    difficulties: List[str] = ["easy", "hard"],
     num_trajectories: int = 3,
     max_turns: int = 30,
     capture_images: bool = True,
     launch_viewer: bool = True,
-    output_dir: Optional[str] = None
+    output_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run full Crafter evaluation with traces and viewer."""
-    
-    framework = FullCrafterEvalFramework(capture_images=capture_images, output_dir=output_dir)
+
+    framework = FullCrafterEvalFramework(
+        capture_images=capture_images, output_dir=output_dir
+    )
     report = await framework.run_evaluation(
         model_names=model_names,
         difficulties=difficulties,
         num_trajectories_per_condition=num_trajectories,
-        max_turns=max_turns
+        max_turns=max_turns,
     )
-    
+
     framework.print_report(report)
-    
+
     if launch_viewer:
         print(f"\n📁 Evaluation saved to: {framework.output_dir}")
         print("🌐 Launching viewer at http://localhost:8999")
         print("   Press Ctrl+C to stop the viewer")
-        
+
         # Set the current eval directory for the viewer
         set_current_eval_dir(framework.output_dir)
-        
+
         # Mount static files from the viewer directory
-        app.mount("/", StaticFiles(directory=str(framework.viewer_dir), html=True), name="viewer")
-        
+        app.mount(
+            "/",
+            StaticFiles(directory=str(framework.viewer_dir), html=True),
+            name="viewer",
+        )
+
         # Run viewer
         config = uvicorn.Config(app, host="0.0.0.0", port=8999, log_level="error")
         server = uvicorn.Server(config)
         await server.serve()
-    
+
     return report
 
 
@@ -1309,7 +1460,7 @@ if __name__ == "__main__":
             num_trajectories=2,
             max_turns=20,
             capture_images=True,
-            launch_viewer=True
+            launch_viewer=True,
         )
-    
+
     asyncio.run(main())

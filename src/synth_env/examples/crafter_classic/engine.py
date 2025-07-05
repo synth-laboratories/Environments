@@ -144,17 +144,19 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
         self._previous_private_state_for_reward: Optional[CrafterPrivateState] = (
             None  # For stat changes
         )
-        
+
         # Initialize achievements tracking
         self.achievements_unlocked: set = set()
 
         cfg = getattr(task_instance, "config", {}) or {}
         area: Tuple[int, int] = tuple(cfg.get("area", (64, 64)))  # type: ignore[arg-type]
         length: int = int(cfg.get("length", 10000))
-        
+
         # Get seed from metadata if available, otherwise fall back to config
         seed: Optional[int] = cfg.get("seed")
-        if hasattr(task_instance, "metadata") and hasattr(task_instance.metadata, "seed"):
+        if hasattr(task_instance, "metadata") and hasattr(
+            task_instance.metadata, "seed"
+        ):
             seed = task_instance.metadata.seed
 
         self.env = crafter.Env(area=area, length=length, seed=seed)
@@ -247,15 +249,15 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
             player = self.env._player  # type: ignore[attr-defined]
             current_step = self.env._step  # type: ignore[attr-defined]
             max_steps = self.env._length  # type: ignore[attr-defined]
-            
+
             # Check if player died (health <= 0)
             player_died = player.health <= 0
-            
+
             # Check if max steps reached
             max_steps_reached = current_step >= max_steps
-            
+
             # Set termination flags properly:
-            # - terminated=True only if player actually died 
+            # - terminated=True only if player actually died
             # - truncated=True only if episode ended due to step limit
             if done:
                 if player_died:
@@ -272,7 +274,9 @@ class CrafterEngine(StatefulEngine, IReproducibleEngine):
                 terminated = False
                 truncated = False
 
-            final_priv_state = self._build_private_state(final_reward, terminated, truncated)
+            final_priv_state = self._build_private_state(
+                final_reward, terminated, truncated
+            )
 
             self._previous_public_state_for_reward = current_pub_state
             self._previous_private_state_for_reward = final_priv_state

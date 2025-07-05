@@ -3,22 +3,23 @@ import json
 from typing import Dict, Any, List
 import base64
 
+
 def MinigridViewer(trace_data: Dict[str, Any]) -> rx.Component:
     """MiniGrid-specific trace viewer component."""
-    
+
     # Extract trace structure
     trace = trace_data.get("trace", {})
     dataset = trace_data.get("dataset", {})
     metadata = trace.get("metadata", {})
     partitions = trace.get("partition", [])
-    
+
     # Extract summary data
     model_name = metadata.get("model_name", "Unknown")
     env_name = metadata.get("env_name", "Unknown MiniGrid Environment")
     total_reward = dataset.get("reward_signals", [{}])[0].get("reward", 0.0)
     num_turns = len(partitions)
     success = metadata.get("success", False)
-    
+
     return rx.vstack(
         # Header
         rx.hstack(
@@ -32,7 +33,6 @@ def MinigridViewer(trace_data: Dict[str, Any]) -> rx.Component:
             justify_content="space-between",
             width="100%",
         ),
-        
         # Summary stats
         rx.hstack(
             rx.stat(
@@ -50,11 +50,10 @@ def MinigridViewer(trace_data: Dict[str, Any]) -> rx.Component:
             spacing="4",
             margin_bottom="1rem",
         ),
-        
         # Turn-by-turn viewer
         rx.tabs(
             rx.tab_list(
-                *[rx.tab(f"Step {i+1}") for i in range(min(num_turns, 15))],
+                *[rx.tab(f"Step {i + 1}") for i in range(min(num_turns, 15))],
                 rx.cond(
                     num_turns > 15,
                     rx.tab(f"... +{num_turns - 15} more"),
@@ -62,14 +61,12 @@ def MinigridViewer(trace_data: Dict[str, Any]) -> rx.Component:
             ),
             rx.tab_panels(
                 *[
-                    rx.tab_panel(
-                        render_minigrid_turn(partitions[i], i)
-                    ) for i in range(min(num_turns, 15))
+                    rx.tab_panel(render_minigrid_turn(partitions[i], i))
+                    for i in range(min(num_turns, 15))
                 ],
             ),
             width="100%",
         ),
-        
         width="100%",
         padding="1rem",
         spacing="4",
@@ -81,22 +78,22 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
     events = partition.get("events", [])
     if not events:
         return rx.text("No events in this turn", color="gray.500")
-    
+
     event = events[0]
-    
+
     # Extract environment steps
     env_steps = event.get("environment_compute_steps", [])
-    
+
     # Collect observations and actions
     observations = []
     actions = []
     rewards = []
     mission = ""
     grid_repr = None
-    
+
     for step in env_steps:
         outputs = step.get("compute_output", [{}])[0].get("outputs", {})
-        
+
         # Extract observation (image or grid)
         if "observation" in outputs:
             obs = outputs["observation"]
@@ -109,12 +106,14 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
                             img_data = f"data:image/png;base64,{img_data}"
                         observations.append(img_data)
                     elif "image_base64" in obs:
-                        observations.append(f"data:image/png;base64,{obs['image_base64']}")
-                
+                        observations.append(
+                            f"data:image/png;base64,{obs['image_base64']}"
+                        )
+
                 # Extract mission
                 if "mission" in obs:
                     mission = obs["mission"]
-        
+
         # Extract image directly
         if "image_base64" in outputs:
             observations.append(f"data:image/png;base64,{outputs['image_base64']}")
@@ -123,11 +122,11 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
             if not img_data.startswith("data:"):
                 img_data = f"data:image/png;base64,{img_data}"
             observations.append(img_data)
-        
+
         # Extract grid representation
         if "grid" in outputs:
             grid_repr = outputs["grid"]
-        
+
         # Extract action
         if "action" in outputs:
             action = outputs["action"]
@@ -136,11 +135,11 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
                 actions.append(action_name)
             else:
                 actions.append(str(action))
-        
+
         # Extract reward
         if "reward" in outputs:
             rewards.append(float(outputs["reward"]))
-    
+
     return rx.vstack(
         # Mission
         rx.cond(
@@ -151,7 +150,6 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
                 spacing="1",
             ),
         ),
-        
         # Actions taken
         rx.cond(
             len(actions) > 0,
@@ -165,18 +163,19 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
                 spacing="2",
             ),
         ),
-        
         # Rewards
         rx.cond(
             len(rewards) > 0 and any(r != 0 for r in rewards),
             rx.hstack(
                 rx.text("Reward:", font_weight="bold"),
-                *[rx.badge(f"{r:+.2f}", color_scheme="green" if r > 0 else "red") 
-                  for r in rewards if r != 0],
+                *[
+                    rx.badge(f"{r:+.2f}", color_scheme="green" if r > 0 else "red")
+                    for r in rewards
+                    if r != 0
+                ],
                 spacing="2",
             ),
         ),
-        
         # Grid visualization
         rx.cond(
             len(observations) > 0,
@@ -192,7 +191,8 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
                             border="2px solid #ddd",
                             border_radius="4px",
                             image_rendering="pixelated",  # For crisp pixel art
-                        ) for obs in observations[:2]  # Show max 2 images
+                        )
+                        for obs in observations[:2]  # Show max 2 images
                     ],
                     spacing="2",
                 ),
@@ -215,10 +215,13 @@ def render_minigrid_turn(partition: Dict[str, Any], turn_idx: int) -> rx.Compone
                     ),
                     spacing="2",
                 ),
-                rx.text("No visualization available for this step", color="gray.500", font_style="italic"),
+                rx.text(
+                    "No visualization available for this step",
+                    color="gray.500",
+                    font_style="italic",
+                ),
             ),
         ),
-        
         spacing="4",
         padding="1rem",
         border="1px solid #eee",
@@ -230,12 +233,12 @@ def get_minigrid_action_name(action_idx: int) -> str:
     """Map MiniGrid action index to name."""
     action_names = {
         0: "left",
-        1: "right", 
+        1: "right",
         2: "forward",
         3: "pickup",
         4: "drop",
         5: "toggle",
-        6: "done"
+        6: "done",
     }
     return action_names.get(action_idx, f"action_{action_idx}")
 

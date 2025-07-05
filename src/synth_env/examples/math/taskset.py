@@ -10,7 +10,10 @@ from synth_env.tasks.core import (
     TaskInstanceMetadataFilter,
 )
 from synth_env.examples.math.engine import load_tasks
-from synth_env.examples.math.schema import HendryksTaskInstance, HendryksTaskInstanceMetadata
+from synth_env.examples.math.schema import (
+    HendryksTaskInstance,
+    HendryksTaskInstanceMetadata,
+)
 
 
 # --- Metadata Filters ---
