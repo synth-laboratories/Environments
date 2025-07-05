@@ -1,6 +1,0 @@
-[eval]
-env = "sokoban"
-model_name = "gpt-4o-mini"
-episodes = 10
-max_steps = 200
-seed = 123 
