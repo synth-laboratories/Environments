@@ -7,6 +7,7 @@ import os
 import json
 import pickle
 import base64
+import numpy as np
 
 from synth_env.service.registry import get_environment_cls, list_supported_env_types
 from synth_env.stateful.core import StatefulEnvironment
@@ -104,6 +105,26 @@ class InstanceStorage:
 storage = InstanceStorage()
 
 
+def convert_numpy_types(obj):
+    """Convert numpy types to native Python types for JSON serialization"""
+    if isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_numpy_types(item) for item in obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    else:
+        return obj
+
+
 # Request/Response models for better API documentation
 class InitializeRequest(BaseModel):
     initial_state: Optional[Dict[str, Any]] = None
@@ -146,7 +167,10 @@ async def initialize_env(
         # Store the fully initialized environment (fixes Redis initialization bug)
         await storage.store(env_id, env)
 
-        return {"env_id": env_id, "observation": obs, "done": False, "info": {}}
+        # Convert numpy types to Python types for JSON serialization
+        obs_serializable = convert_numpy_types(obs)
+
+        return {"env_id": env_id, "observation": obs_serializable, "done": False, "info": {}}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -247,11 +271,15 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
             "done": result.get("terminated", False) or result.get("truncated", False),
             "info": {"terminated": result.get("terminated", False), "truncated": result.get("truncated", False)},
         }
+        
+        # Convert numpy types to Python types for JSON serialization
+        response_serializable = convert_numpy_types(response)
+        
         print(
-            f"🌐 ENVIRONMENTS SERVICE {request_id}: Returning response with keys: {list(response.keys())}",
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Returning response with keys: {list(response_serializable.keys())}",
             file=sys.stderr,
         )
-        return response
+        return response_serializable
     except Exception as e:
         print(
             f"🌐 ENVIRONMENTS SERVICE {request_id}: Exception during step: {type(e).__name__} - {e}",
@@ -274,9 +302,10 @@ async def terminate_env(
     try:
         # Terminate environment and capture observation
         observation = await env.terminate()
+        observation_serializable = convert_numpy_types(observation)
 
         return {
-            "public": observation,
+            "public": observation_serializable,
             "private": {"instance_id": request.env_id},
         }
     except Exception as e:
@@ -311,7 +340,8 @@ async def reset_env_legacy(
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
     obs = await env.initialize()
-    return {"private": obs, "public": obs}
+    obs_serializable = convert_numpy_types(obs)
+    return {"private": obs_serializable, "public": obs_serializable}
 
 
 @api_router.post("/{env_type}/{instance_id}/step", deprecated=True)
@@ -323,7 +353,8 @@ async def step_env_legacy(
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
     obs = await env.step(calls)
-    return {"private": obs, "public": obs}
+    obs_serializable = convert_numpy_types(obs)
+    return {"private": obs_serializable, "public": obs_serializable}
 
 
 @api_router.post("/{env_type}/{instance_id}/terminate", deprecated=True)
@@ -333,7 +364,8 @@ async def terminate_env_legacy(env_type: str, instance_id: str) -> Any:
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
     obs = await env.terminate()
-    return obs
+    obs_serializable = convert_numpy_types(obs)
+    return obs_serializable
 
 
 @api_router.get("/{env_type}/{instance_id}/checkpoint")
@@ -343,4 +375,5 @@ async def checkpoint_env(env_type: str, instance_id: str) -> Dict[str, Any]:
     if not env:
         raise HTTPException(status_code=404, detail="Instance not found")
     snapshot = await env.checkpoint()
-    return {"snapshot": snapshot}
+    snapshot_serializable = convert_numpy_types(snapshot)
+    return {"snapshot": snapshot_serializable}
