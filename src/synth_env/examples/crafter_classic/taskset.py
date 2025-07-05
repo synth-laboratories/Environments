@@ -176,7 +176,7 @@ async def create_crafter_taskset(num_instances: int = NUM_INSTANCES) -> TaskInst
         intent = Intent(
             rubric={"goal": "Unlock as many achievements as possible."},
             gold_trajectories=None,
-            gold_state_diff={}
+            gold_state_diff={},
         )
         metadata = CrafterTaskInstanceMetadata(
             difficulty=difficulty,

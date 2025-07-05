@@ -14,7 +14,10 @@ import logging
 from fastapi import FastAPI
 from synth_env.service.registry import list_supported_env_types, register_environment
 from synth_env.service.core_routes import api_router
-from synth_env.service.external_registry import ExternalRegistryConfig, load_external_environments
+from synth_env.service.external_registry import (
+    ExternalRegistryConfig,
+    load_external_environments,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +42,9 @@ register_environment("TicTacToe", ttt.TicTacToeEnvironment)
 import synth_env.examples.nethack.environment as nh
 
 register_environment("NetHack", nh.NetHackEnvironment)
+import synth_env.examples.algotune.environment as at
+
+register_environment("AlgoTune", at.AlgoTuneEnvironment)
 
 app = FastAPI(title="Environment Service")
 

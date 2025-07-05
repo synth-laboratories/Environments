@@ -1,0 +1,15 @@
+# Example configuration for NetHack evaluations
+# Copy this file and modify as needed for your evaluation runs
+
+[eval]
+env = "nethack"
+model_name = "gpt-4o-mini"  # Model to evaluate
+episodes = 3                # Number of episodes to run (NetHack episodes can be long)
+max_steps = 1000           # Maximum steps per episode
+seed = 42                  # Random seed for reproducibility
+character_role = "wizard"   # Character class to play
+
+[output]
+# Results will be saved to src/evals/{env}/run_{timestamp}/
+# Traces will be saved to src/evals/{env}/run_{timestamp}/traces/
+# Viewer will be available at src/evals/{env}/run_{timestamp}/viewer/ 

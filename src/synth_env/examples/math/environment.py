@@ -6,7 +6,9 @@ from synth_env.environment.shared_engine import (
 from synth_env.reproducibility.core import ReproducibleEnvironment
 from synth_env.stateful.core import StatefulEnvironment
 from synth_env.environment.tools import EnvToolCall
-from synth_env.examples.math.tools import SubmitAnswerTool  # Specific tool for math submissions
+from synth_env.examples.math.tools import (
+    SubmitAnswerTool,
+)  # Specific tool for math submissions
 
 from synth_env.examples.math.engine import (
     HendryksMathEngine,

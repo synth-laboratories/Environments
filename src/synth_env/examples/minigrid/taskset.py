@@ -26,7 +26,7 @@ from synth_env.tasks.api import (
 @dataclass
 class MiniGridTaskInstanceMetadata(TaskInstanceMetadata):
     """Metadata for a MiniGrid task instance."""
-    
+
     env_name: str
     grid_size: Tuple[int, int]
     difficulty: str  # "easy", "medium", "hard"
@@ -41,7 +41,7 @@ class MiniGridTaskInstanceMetadata(TaskInstanceMetadata):
 @dataclass
 class MiniGridTaskInstance(TaskInstance):
     """A specific MiniGrid task instance."""
-    
+
     async def serialize(self) -> dict:
         """Serialize the task instance to dict."""
         return {
@@ -67,7 +67,7 @@ class MiniGridTaskInstance(TaskInstance):
             },
             "is_reproducible": self.is_reproducible,
         }
-    
+
     @classmethod
     async def deserialize(cls, data: dict) -> "MiniGridTaskInstance":
         """Deserialize a task instance from dict."""
@@ -131,38 +131,38 @@ async def create_minigrid_taskset(
     seed: Optional[int] = None,
 ) -> TaskInstanceSet:
     """Generate MiniGrid task instances.
-    
+
     Args:
         num_tasks_per_difficulty: Number of tasks to generate for each difficulty.
             Defaults to {"easy": 10, "medium": 10, "hard": 10}
         seed: Random seed for reproducibility
-        
+
     Returns:
         TaskInstanceSet with train/val/test splits
     """
     if num_tasks_per_difficulty is None:
         num_tasks_per_difficulty = {"easy": 10, "medium": 10, "hard": 10}
-    
+
     if seed is not None:
         random.seed(seed)
-    
+
     instances = []
-    
+
     for difficulty, num_tasks in num_tasks_per_difficulty.items():
         if difficulty not in ENVIRONMENTS:
             continue
-        
+
         envs = ENVIRONMENTS[difficulty]
-        
+
         for i in range(num_tasks):
             # Select random environment
             env_name, grid_size = random.choice(envs)
-            
+
             # Determine features based on environment name
             has_key = "DoorKey" in env_name or "Unlock" in env_name
             has_door = "Door" in env_name or "Room" in env_name
             has_lava = "Lava" in env_name
-            
+
             # Estimate number of objects
             num_objects = 0
             if has_key:
@@ -171,18 +171,20 @@ async def create_minigrid_taskset(
                 num_objects += 1
             if "Pickup" in env_name:
                 num_objects += 1
-            
+
             # Create task-specific instructions with clear symbol explanations
             instructions = f"Navigate the {grid_size[0]}x{grid_size[1]} grid to reach the goal marked with 'G'."
-            
+
             # Add specific instructions based on environment features
             if has_lava:
                 instructions += " Avoid stepping on lava tiles marked with 'L' as they will end your mission."
             if has_key and has_door:
                 instructions += " You must first pick up the key marked with 'K', then use it to unlock doors marked with 'D'."
             elif has_door:
-                instructions += " Navigate through doors marked with 'D' to reach different rooms."
-            
+                instructions += (
+                    " Navigate through doors marked with 'D' to reach different rooms."
+                )
+
             # Add general navigation help
             if env_name.startswith("MiniGrid-Empty"):
                 instructions += " The grid contains walls (#) that block movement and empty spaces (.) you can move through."
@@ -190,10 +192,10 @@ async def create_minigrid_taskset(
                 instructions += " The grid is divided into four rooms connected by openings. Find the path between rooms to reach the goal."
             elif "MultiRoom" in env_name:
                 instructions += " Navigate through multiple connected rooms to find and reach the goal."
-            
+
             # Always remind about the goal and exploration
             instructions += " Note: You have limited vision and may need to explore the maze to find the goal. Look for the green goal square marked with 'G' - it may not be visible initially, so explore systematically to discover it."
-            
+
             # Create rubric
             rubric = {
                 "goal": f"Successfully complete the {env_name} environment by reaching the goal.",
@@ -202,15 +204,17 @@ async def create_minigrid_taskset(
                     "Avoid illegal moves or getting stuck",
                 ],
             }
-            
+
             if has_lava:
                 rubric["success_criteria"].append("Do not step on lava tiles")
             if has_key:
-                rubric["success_criteria"].append("Pick up the key before attempting to open doors")
-            
+                rubric["success_criteria"].append(
+                    "Pick up the key before attempting to open doors"
+                )
+
             # Generate unique seed for this task
             task_seed = random.randint(0, 1000000)
-            
+
             # Create task instance
             impetus = Impetus(instructions=instructions)
             intent = Intent(
@@ -218,7 +222,7 @@ async def create_minigrid_taskset(
                 gold_trajectories=None,
                 gold_state_diff={},
             )
-            
+
             metadata = MiniGridTaskInstanceMetadata(
                 env_name=env_name,
                 grid_size=grid_size,
@@ -229,7 +233,7 @@ async def create_minigrid_taskset(
                 num_objects=num_objects,
                 seed=task_seed,
             )
-            
+
             instance = MiniGridTaskInstance(
                 id=uuid4(),
                 impetus=impetus,
@@ -238,26 +242,26 @@ async def create_minigrid_taskset(
                 is_reproducible=True,
                 initial_engine_snapshot=None,
             )
-            
+
             instances.append(instance)
-    
+
     # Create splits (70% train, 15% val, 15% test)
     n_total = len(instances)
     n_val = max(1, int(n_total * 0.15))
     n_test = max(1, int(n_total * 0.15))
-    
+
     # Shuffle and split
     random.shuffle(instances)
-    
+
     val_ids = {inst.id for inst in instances[:n_val]}
-    test_ids = {inst.id for inst in instances[n_val:n_val + n_test]}
-    
+    test_ids = {inst.id for inst in instances[n_val : n_val + n_test]}
+
     split_info = SplitInfo(
         val_instance_ids=val_ids,
         test_instance_ids=test_ids,
         _is_split_defined=True,
     )
-    
+
     return TaskInstanceSet(
         name="MiniGrid TaskSet",
         description="Diverse MiniGrid navigation tasks across multiple environments and difficulties",

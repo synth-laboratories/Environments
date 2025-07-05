@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synth Environment Viewer</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <h1>🔬 Synth Trace Viewer</h1>
+            <div class="trace-selector">
+                <label for="trace-select">Select Trace:</label>
+                <select id="trace-select"></select>
+                <button id="refresh-btn">🔄 Refresh</button>
+            </div>
+        </div>
+        
+        <div class="main-container">
+            <div class="sidebar">
+                <h2>Timeline</h2>
+                <div id="timeline" class="timeline"></div>
+                
+                <div class="trace-info">
+                    <h3>Trace Info</h3>
+                    <div id="trace-metadata"></div>
+                </div>
+            </div>
+            
+            <div class="content">
+                <div class="question-reward">
+                    <h2>Training Question</h2>
+                    <div id="question-display" class="info-box"></div>
+                    
+                    <h2>Reward Signal</h2>
+                    <div id="reward-display" class="info-box"></div>
+                </div>
+                
+                <div class="turn-details">
+                    <h2>Turn Details</h2>
+                    <div id="turn-content">
+                        <p class="placeholder">Select a turn from the timeline</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="viewer.js"></script>
+</body>
+</html>

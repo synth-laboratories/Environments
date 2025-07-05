@@ -8,8 +8,14 @@ logging.basicConfig(
 
 from synth_ai.zyk import LM
 from synth_env.examples.math.environment import HendryksMathEnv
-from synth_env.examples.math.taskset import create_hendryks_taskset, HendryksSubjectFilter
-from synth_env.examples.math.schema import HendryksTaskInstance, HendryksTaskInstanceMetadata
+from synth_env.examples.math.taskset import (
+    create_hendryks_taskset,
+    HendryksSubjectFilter,
+)
+from synth_env.examples.math.schema import (
+    HendryksTaskInstance,
+    HendryksTaskInstanceMetadata,
+)
 from synth_env.examples.math.tools import SubmitAnswerTool
 from tabulate import tabulate
 

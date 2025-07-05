@@ -6,7 +6,10 @@ import pytest
 from uuid import uuid4
 
 from synth_env.examples.math.environment import HendryksMathEnv
-from synth_env.examples.math.schema import HendryksTaskInstance, HendryksTaskInstanceMetadata
+from synth_env.examples.math.schema import (
+    HendryksTaskInstance,
+    HendryksTaskInstanceMetadata,
+)
 from synth_env.tasks.core import Impetus, Intent
 
 

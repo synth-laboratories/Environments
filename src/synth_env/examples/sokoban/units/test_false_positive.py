@@ -10,7 +10,10 @@ from typing import Dict, Any
 import pytest
 
 from synth_env.examples.sokoban.environment import SokobanEnvironment
-from synth_env.examples.sokoban.units.astar_common import astar, solved  # buggy solved()!
+from synth_env.examples.sokoban.units.astar_common import (
+    astar,
+    solved,
+)  # buggy solved()!
 from synth_env.examples.sokoban.taskset import (
     SokobanTaskInstance,
     SokobanTaskInstanceMetadata,

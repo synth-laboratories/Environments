@@ -12,7 +12,9 @@ import pytest
 
 # ––––– app imports ––––– #
 from synth_env.examples.sokoban.environment import SokobanEnvironment  # <- your wrapper
-from synth_env.examples.sokoban.engine import SokobanEngineSnapshot  # same snapshot type
+from synth_env.examples.sokoban.engine import (
+    SokobanEngineSnapshot,
+)  # same snapshot type
 from synth_env.environment.tools import EnvToolCall  # call interface
 
 from synth_env.examples.sokoban.taskset import (
@@ -22,7 +24,10 @@ from synth_env.examples.sokoban.taskset import (
 from synth_env.tasks.core import Impetus, Intent
 
 # shared A* / heuristic utilities
-from synth_env.examples.sokoban.units.astar_common import ENGINE_ASTAR, solved  # Use ENGINE_ASTAR
+from synth_env.examples.sokoban.units.astar_common import (
+    ENGINE_ASTAR,
+    solved,
+)  # Use ENGINE_ASTAR
 
 
 # ---------------- test fixture snapshot ---------------------------------- #
