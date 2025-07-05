@@ -1,5 +1,0 @@
-[eval]
-env = "verilog"
-model_name = "gpt-4.1-nano"
-episodes = 1
-debug = true 

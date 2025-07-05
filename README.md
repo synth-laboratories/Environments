@@ -1,10 +1,13 @@
 # Environments
 Synthetic Environments / Long Horizon Tasks / Digital Control Agents
 
-![Coverage](https://img.shields.io/badge/coverage-42.3%25-yellow)
+![Coverage](https://img.shields.io/badge/coverage-0.0%25-red)
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-7/19 failing-red)
+![Type Check Examples](https://img.shields.io/badge/types (examples)-98%25 (5 errors)-green)-98%25 (5 errors)-green)-98%25 (5 errors)-green)
+![Type Check Core](https://img.shields.io/badge/types (core)-100%25 (0 errors)-green)-100%25 (0 errors)-green)-100%25 (0 errors)-green)
+![PyPI Dev](https://img.shields.io/badge/PyPI dev-0.0.1.dev2-orange)
 
 uvicorn src.synth_env.service.app:app --reload --port 8000
 uv run python src/synth_env/examples/nethack/agent_demos/test_synth_react.py
@@ -38,30 +41,39 @@ Note - this repo is under extremely active development. Hic sunt dracones, if no
 
 # Development
 
-To use the Astral suite of devtools:
-- Package management: `uv sync`, `uv add`, `uv remove`
-- Linting: `ruff format .`
-- Type checking: `uvx ty check`
+For development setup, testing, and contribution guidelines, see:
+- **[Contributing Guide](dev/contributing.md)** - Complete development setup and workflow
+- **[Environment Contribution Guide](docs/env_contribution_guide.md)** - Step-by-step guide for adding new environments
 
-## Testing and Coverage
+## Quick Development Commands
 
-Run tests with coverage:
 ```bash
-# Run all tests with coverage report
-pytest tests/ --cov=src --cov-report=html --cov-report=term
+# Install dependencies
+uv sync
 
-# Run specific test files
-pytest tests/unit/test_registry.py
+# Run tests
+./scripts/run_tests.sh
 
-# Run with verbose output
-pytest tests/ -v
+# Update README metrics
+./scripts/run_dev_helpers.sh
+
+# Format code
+ruff format .
+
+# Check codebase health
+python scripts/check_health.py
+
+# Release to PyPI (increment dev version)
+python scripts/release.py
+
+# Release with version selection
+python scripts/release.py --minor
+python scripts/release.py --patch
+
+# Dry run to see what would happen
+python scripts/release.py --dry-run
+
+# Publish to TestPyPI instead
+python scripts/release.py --test-pypi
 ```
-
-Current test coverage: **42.3%**
-
-The test suite includes:
-- **Unit tests** for core components (registry, environments, engines)
-- **Integration tests** for service API endpoints
-- **Q* solver tests** for Sokoban environment
-- No AI agent demos in tests (algorithmic solving only)
 

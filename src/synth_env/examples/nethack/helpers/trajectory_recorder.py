@@ -106,7 +106,7 @@ class TrajectoryMetadata:
 class TrajectoryRecorder:
     """Records and saves NetHack game trajectories."""
     
-    def __init__(self, save_dir: str = "dev/nethack_trajectories"):
+    def __init__(self, save_dir: str = "temp/nethack_trajectories"):
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
         

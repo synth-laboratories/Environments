@@ -1,2 +1,0 @@
-Trajectory ID,Model,Difficulty,Seed,Success,Steps,Turns,Reward,Total Achievements,Easy,Medium,Hard,Avg Actions/Turn,Termination,Final Health,Achievements
-15b343aa,gemini-1.5-flash-latest,easy,1000,✓,54,10,-0.054,1,1,0,0,5.4,timeout,9,collect_sapling

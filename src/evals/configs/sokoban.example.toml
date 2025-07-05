@@ -1,0 +1,15 @@
+# Example configuration for Sokoban evaluations
+# Copy this file and modify as needed for your evaluation runs
+
+[eval]
+env = "sokoban"
+model_name = "gpt-4o-mini"  # Model to evaluate
+episodes = 5                # Number of episodes to run
+max_steps = 200            # Maximum steps per episode
+seed = 42                  # Random seed for reproducibility
+modes = "easy"             # Difficulty mode
+
+[output]
+# Results will be saved to src/evals/{env}/run_{timestamp}/
+# Traces will be saved to src/evals/{env}/run_{timestamp}/traces/
+# Viewer will be available at src/evals/{env}/run_{timestamp}/viewer/ 

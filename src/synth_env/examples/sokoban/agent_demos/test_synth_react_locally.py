@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 
 import asyncio
 import uuid
@@ -27,10 +28,24 @@ from synth_env.environment.shared_engine import (
 from synth_env.examples.sokoban.taskset import SokobanTaskInstance, SokobanTaskInstanceMetadata
 from synth_env.tasks.core import Impetus, Intent
 from synth_env.environment.tools import EnvToolCall
+from dataclasses import dataclass
 
 import logging
 
 logging.disable(logging.CRITICAL)
+
+
+@dataclass
+class AgentDecisionRecord:
+    """Record of agent's decision-making process including messages, tool calls, and results."""
+    action_int: int
+    input_messages: List[Dict[str, Any]]
+    output_messages: List[Dict[str, Any]]
+    tool_calls: List[Dict[str, Any]]
+    tool_results: List[Dict[str, Any]]
+    reasoning_text: str
+    model_name: str
+    raw_response: Any = None
 
 
 # --- Helper function to format observation for LLM ---
@@ -88,15 +103,17 @@ class HistoryObservationCallable(GetObservationCallable):
 # --- Pydantic Models for Tool Arguments ---
 class SokobanInteractArgs(BaseModel):
     actions_list: List[str] = Field(
-        description="'''A sequence of actions to execute in the environment (e.g., [\"move up\", \"push left\"])'''"
+        description="List of actions to execute. Valid actions: move up, move down, move left, move right, push up, push down, push left, push right, no operation"
     )
     reasoning: str = Field(
-        description="A brief explanation of why these actions were chosen"
+        description="Reasoning for the chosen actions"
     )
 
 
 class TerminateArgs(BaseModel):
-    reason: str = Field(description="Reason for termination")
+    reasoning: str = Field(
+        description="Reasoning for terminating the agent"
+    )
 
 
 # --- tiny ReAct agent -------------------------------------------------- #
@@ -138,208 +155,262 @@ class ReActAgent:
         prompt_history = []
         for entry in self.history:
             if entry["type"] == "obs":
-                prompt_history.append(f"OBSERVATION:\\n{entry['content']}")
+                prompt_history.append(f"OBSERVATION:\n{entry['content']}")
             elif entry["type"] == "tool_call":
                 args_str = json.dumps(entry["tool_arguments"])
                 prompt_history.append(
-                    f"THOUGHT:\\nI will call the tool `{entry['tool_name']}` with arguments: {args_str}\\nACTION: (Tool call executed)"
+                    f"THOUGHT:\nI will call the tool `{entry['tool_name']}` with arguments: {args_str}\nACTION: (Tool call executed)"
                 )
             elif entry["type"] == "tool_response":
                 prompt_history.append(
-                    "TOOL_RESPONSE:\\n(Action executed, new observation will follow if not terminal)"
+                    "TOOL_RESPONSE:\n(Action executed, new observation will follow if not terminal)"
                 )
-        return "\\n".join(prompt_history)
+        return "\n".join(prompt_history)
 
     @trace_event_async(event_type="react_agent_decide")
-    async def decide(self, obs: str) -> int:
+    async def decide(self, obs: str) -> AgentDecisionRecord:
+        """
+        Make a decision and return a complete record of the reasoning process.
+        """
         self.history.append({"type": "obs", "content": obs})
 
         formatted_prompt_history = self._format_history_for_prompt()
+        user_prompt = f"{formatted_prompt_history}\n\nBased on the history above, particularly the last observation, what is your reasoning and which tool should you call next?"
 
-        prompt = f"{formatted_prompt_history}\n\nBased on the history above, particularly the last observation, what is your reasoning and which tool should you call next?"
-
-        system_message = (
+        system_prompt = (
             "You are an agent playing Sokoban. Your goal is to push all boxes onto the target locations. "
             "Review the history of observations, thoughts, and actions. "
             "Based on this history, particularly the last observation, decide on the best next action. "
             "You MUST call one of the two available tools: `sokoban_interact` or `terminate`.\n\n"
+            "Action Guide:\n"
+            "- Use 'move' actions (move up, move down, move left, move right) when moving to empty spaces\n"
+            "- Use 'push' actions (push up, push down, push left, push right) when pushing boxes onto targets\n"
+            "- Use 'no operation' to skip a turn\n\n"
             "Please use the tools available to you. Do not attempt to include a tool call in your reasoning"
         )
 
+        # Create input messages
+        input_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        # Get response from LLM
         response_obj = await self.llm.respond_async(
-            system_message=system_message, user_message=prompt, tools=self.tools
+            system_message=system_prompt, user_message=user_prompt, tools=self.tools
         )
 
-        assert response_obj.tool_calls, (
-            f"Response object didn't have tool call - {response_obj}"
-        )
+        # Initialize record fields
+        tool_calls = []
+        tool_results = []
+        reasoning_text = ""
+        action_int = ACTION_STRING_TO_INT["no operation"]  # Default fallback
 
-        tool_calls = None
-
-        try:
-            if hasattr(response_obj, "tool_calls") and response_obj.tool_calls:
-                tool_calls = response_obj.tool_calls
-            elif isinstance(response_obj, str):
-                try:
-                    potential_tool_call_json = json.loads(response_obj)
-                    if (
-                        isinstance(potential_tool_call_json, dict)
-                        and "tool_calls" in potential_tool_call_json
-                    ):
-                        tool_calls = potential_tool_call_json["tool_calls"]
-                    elif (
-                        isinstance(potential_tool_call_json, list)
-                        and len(potential_tool_call_json) > 0
-                        and potential_tool_call_json[0].get("type") == "function"
-                    ):
-                        tool_calls = potential_tool_call_json
-                    else:
-                        self.history.append(
-                            {
-                                "type": "tool_call",
-                                "tool_name": "sokoban_interact",
-                                "tool_arguments": {
-                                    "actions_list": ["move down"],
-                                    "reasoning": response_obj[:200],
-                                },
-                            }
-                        )
-                        return ACTION_STRING_TO_INT["move down"]
-                except json.JSONDecodeError:
-                    self.history.append(
-                        {
-                            "type": "tool_call",
-                            "tool_name": "sokoban_interact",
-                            "tool_arguments": {
-                                "actions_list": ["move down"],
-                                "reasoning": "LLM failed to call tool (JSON decode error), fallback.",
-                            },
-                        }
-                    )
-                    return ACTION_STRING_TO_INT["move down"]
-
-            if not tool_calls:
-                self.history.append(
-                    {
-                        "type": "tool_call",
-                        "tool_name": "sokoban_interact",
-                        "tool_arguments": {
-                            "actions_list": ["move down"],
-                            "reasoning": "LLM failed to provide tool_calls, fallback.",
-                        },
-                    }
-                )
-                return ACTION_STRING_TO_INT["move down"]
-
-            if len(tool_calls) == 0:
-                self.history.append(
-                    {"type": "error", "content": "LLM returned empty tool_calls list."}
-                )
-                return ACTION_STRING_TO_INT["no operation"]
-
-            tool_call_data = tool_calls[0]
-
-            tool_name = ""
-            tool_args_str = ""
-
-            if (
-                hasattr(tool_call_data, "function")
-                and hasattr(tool_call_data.function, "name")
-                and hasattr(tool_call_data.function, "arguments")
-            ):
-                tool_name = tool_call_data.function.name
-                tool_args_str = tool_call_data.function.arguments
-            elif (
-                isinstance(tool_call_data, dict)
-                and "function" in tool_call_data
-                and isinstance(tool_call_data["function"], dict)
-            ):
-                tool_name = tool_call_data["function"].get("name")
-                tool_args_str = tool_call_data["function"].get("arguments")
-                if not isinstance(tool_args_str, str):
-                    tool_arguments = tool_args_str
-                    tool_args_str = json.dumps(tool_arguments)
-                else:
-                    tool_arguments = json.loads(tool_args_str)
-
-            else:
-                self.history.append(
-                    {"type": "error", "content": "Unexpected tool_call structure."}
-                )
-                return ACTION_STRING_TO_INT["no operation"]
-
-            if not tool_args_str:
-                self.history.append(
-                    {
-                        "type": "error",
-                        "content": f"Missing arguments for tool {tool_name}",
-                    }
-                )
-                return ACTION_STRING_TO_INT["no operation"]
-
-            tool_arguments = json.loads(tool_args_str)
-
+        # Handle cases where the model does **not** return a structured tool call.
+        if not getattr(response_obj, "tool_calls", None):
+            # Record fallback in history for later analysis
+            reasoning_text = "LLM failed to provide tool_calls; fallback action."
             self.history.append(
                 {
                     "type": "tool_call",
-                    "tool_name": tool_name,
-                    "tool_arguments": tool_arguments,
+                    "tool_name": "sokoban_interact",
+                    "tool_arguments": {
+                        "actions_list": ["move down"],
+                        "reasoning": reasoning_text,
+                    },
                 }
             )
+            action_int = ACTION_STRING_TO_INT["move down"]
+            
+            # Create fallback tool call record
+            tool_calls = [{
+                "id": "fallback_0",
+                "type": "function",
+                "function": {
+                    "name": "sokoban_interact",
+                    "arguments": json.dumps({
+                        "actions_list": ["move down"],
+                        "reasoning": reasoning_text
+                    })
+                }
+            }]
+            
+            tool_results = [{
+                "tool_call_id": "fallback_0",
+                "content": "Fallback action: move down"
+            }]
+        else:
+            # Process successful tool calls
+            response_tool_calls = None
+            
+            try:
+                if hasattr(response_obj, "tool_calls") and response_obj.tool_calls:
+                    response_tool_calls = response_obj.tool_calls
+                elif isinstance(response_obj, str):
+                    try:
+                        potential_tool_call_json = json.loads(response_obj)
+                        if (
+                            isinstance(potential_tool_call_json, dict)
+                            and "tool_calls" in potential_tool_call_json
+                        ):
+                            response_tool_calls = potential_tool_call_json["tool_calls"]
+                        elif (
+                            isinstance(potential_tool_call_json, list)
+                            and len(potential_tool_call_json) > 0
+                            and potential_tool_call_json[0].get("type") == "function"
+                        ):
+                            response_tool_calls = potential_tool_call_json
+                    except json.JSONDecodeError:
+                        pass
 
-            if tool_name == "sokoban_interact":
-                validated_args = SokobanInteractArgs(**tool_arguments)
-                if not validated_args.actions_list:
-                    return ACTION_STRING_TO_INT["no operation"]
-
-                action_str = validated_args.actions_list[0]
-                action_int = ACTION_STRING_TO_INT.get(action_str.lower())
-
-                if action_int is None:
-                    return ACTION_STRING_TO_INT["no operation"]
-                return action_int
-
-            elif tool_name == "terminate":
-                if self.last_obs_dict:
-                    terminated_by_env = self.last_obs_dict.get("terminated", False)
-
-                    raw_boxes_on_target = self.last_obs_dict.get("boxes_on_target")
-                    boxes_on_target = 0
-                    if isinstance(raw_boxes_on_target, (int, float)):
-                        boxes_on_target = int(raw_boxes_on_target)
-                    elif (
-                        isinstance(raw_boxes_on_target, str)
-                        and raw_boxes_on_target.isdigit()
+                if response_tool_calls and len(response_tool_calls) > 0:
+                    tool_call_data = response_tool_calls[0]
+                    
+                    tool_name = ""
+                    tool_args_str = ""
+                    
+                    if (
+                        hasattr(tool_call_data, "function")
+                        and hasattr(tool_call_data.function, "name")
+                        and hasattr(tool_call_data.function, "arguments")
                     ):
-                        boxes_on_target = int(raw_boxes_on_target)
+                        tool_name = tool_call_data.function.name
+                        tool_args_str = tool_call_data.function.arguments
+                    elif (
+                        isinstance(tool_call_data, dict)
+                        and "function" in tool_call_data
+                        and isinstance(tool_call_data["function"], dict)
+                    ):
+                        tool_name = tool_call_data["function"].get("name")
+                        tool_args_str = tool_call_data["function"].get("arguments")
+                        if not isinstance(tool_args_str, str):
+                            tool_args_str = json.dumps(tool_args_str)
 
-                    is_solved_state = (
-                        self.num_total_boxes > 0
-                        and boxes_on_target == self.num_total_boxes
-                    )
-
-                    if terminated_by_env or is_solved_state:
-                        return -1
-                    else:
-                        rejection_reason = (
-                            f"Terminate rejected by guard – puzzle not solved. "
-                            f"Env terminated: {terminated_by_env}, "
-                            f"Boxes on target: {boxes_on_target}/{self.num_total_boxes}."
+                    if tool_name and tool_args_str:
+                        tool_arguments = json.loads(tool_args_str)
+                        
+                        # Create proper tool call record
+                        tool_calls = [{
+                            "id": f"call_{len(self.history)}",
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "arguments": tool_args_str
+                            }
+                        }]
+                        
+                        # Record in history
+                        self.history.append(
+                            {
+                                "type": "tool_call",
+                                "tool_name": tool_name,
+                                "tool_arguments": tool_arguments,
+                            }
                         )
-                        return ACTION_STRING_TO_INT["no operation"]
-                else:
-                    error_msg = "Error: self.last_obs_dict not populated. Cannot verify termination condition. Rejecting termination."
-                    self.history.append({"type": "error", "content": error_msg})
-                    return ACTION_STRING_TO_INT["no operation"]
+                        
+                        # Process the tool call
+                        if tool_name == "sokoban_interact":
+                            validated_args = SokobanInteractArgs(**tool_arguments)
+                            reasoning_text = validated_args.reasoning
+                            
+                            if validated_args.actions_list:
+                                action_str = validated_args.actions_list[0]
+                                action_int = ACTION_STRING_TO_INT.get(action_str.lower(), ACTION_STRING_TO_INT["no operation"])
+                                
+                                tool_results = [{
+                                    "tool_call_id": f"call_{len(self.history)-1}",
+                                    "content": f"Executed action: {action_str}"
+                                }]
+                            else:
+                                tool_results = [{
+                                    "tool_call_id": f"call_{len(self.history)-1}",
+                                    "content": "No action specified, using no operation"
+                                }]
+                        
+                        elif tool_name == "terminate":
+                            validated_args = TerminateArgs(**tool_arguments)
+                            reasoning_text = validated_args.reasoning
+                            
+                            # Check if termination is valid
+                            if self.last_obs_dict:
+                                terminated_by_env = self.last_obs_dict.get("terminated", False)
+                                boxes_on_target = int(self.last_obs_dict.get("boxes_on_target", 0))
+                                is_solved_state = (
+                                    self.num_total_boxes > 0
+                                    and boxes_on_target == self.num_total_boxes
+                                )
+                                
+                                if terminated_by_env or is_solved_state:
+                                    action_int = -1  # Terminate
+                                    tool_results = [{
+                                        "tool_call_id": f"call_{len(self.history)-1}",
+                                        "content": "Termination accepted - puzzle solved or environment terminated"
+                                    }]
+                                else:
+                                    action_int = ACTION_STRING_TO_INT["no operation"]
+                                    tool_results = [{
+                                        "tool_call_id": f"call_{len(self.history)-1}",
+                                        "content": f"Termination rejected - puzzle not solved. Boxes on target: {boxes_on_target}/{self.num_total_boxes}"
+                                    }]
+                            else:
+                                action_int = ACTION_STRING_TO_INT["no operation"]
+                                tool_results = [{
+                                    "tool_call_id": f"call_{len(self.history)-1}",
+                                    "content": "Termination rejected - cannot verify puzzle state"
+                                }]
+                        
+            except Exception as e:
+                reasoning_text = f"Error processing LLM response: {str(e)}"
+                self.history.append(
+                    {"type": "error", "content": reasoning_text}
+                )
+                action_int = ACTION_STRING_TO_INT["no operation"]
+                
+                tool_calls = [{
+                    "id": f"error_{len(self.history)}",
+                    "type": "function",
+                    "function": {
+                        "name": "sokoban_interact",
+                        "arguments": json.dumps({
+                            "actions_list": ["no operation"],
+                            "reasoning": reasoning_text
+                        })
+                    }
+                }]
+                
+                tool_results = [{
+                    "tool_call_id": f"error_{len(self.history)}",
+                    "content": f"Error occurred: {str(e)}"
+                }]
 
-            else:
-                return ACTION_STRING_TO_INT["no operation"]
+        # Create output messages
+        output_messages = [
+            {
+                "role": "assistant",
+                "content": reasoning_text,
+                "tool_calls": tool_calls
+            }
+        ]
+        
+        # Add tool results as separate messages
+        for tool_result in tool_results:
+            output_messages.append({
+                "role": "tool",
+                "tool_call_id": tool_result["tool_call_id"],
+                "content": tool_result["content"]
+            })
 
-        except Exception as e:
-            self.history.append(
-                {"type": "error", "content": f"Error processing LLM response: {str(e)}"}
-            )
-            return ACTION_STRING_TO_INT["no operation"]
+        # Create and return the decision record
+        return AgentDecisionRecord(
+            action_int=action_int,
+            input_messages=input_messages,
+            output_messages=output_messages,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            reasoning_text=reasoning_text,
+            model_name=self.llm.model_name,
+            raw_response=response_obj
+        )
 
 
 # --- test ---------------------------------------------------------------- #
@@ -399,7 +470,8 @@ async def test_react_agent_sokoban(tmp_path: Path):
         )
 
         for turn in range(agent.max_turns):
-            act_idx = await agent.decide(current_input_to_agent)
+            decision_record = await agent.decide(current_input_to_agent)
+            act_idx = decision_record.action_int
 
             if act_idx == -1:
                 obs_payload_next = obs_payload
@@ -515,7 +587,8 @@ async def eval_react_sokoban(
         prompt_obs = format_obs_for_llm_from_states(obs["public"], obs["private"])
 
         for _ in range(agent.max_turns):
-            act_idx = await agent.decide(prompt_obs)
+            decision_record = await agent.decide(prompt_obs)
+            act_idx = decision_record.action_int
             if act_idx == -1:  # agent terminated
                 break
             obs = await env.step([{"tool": "interact", "args": {"action": act_idx}}])

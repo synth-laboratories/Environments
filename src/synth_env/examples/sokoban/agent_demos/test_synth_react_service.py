@@ -124,7 +124,8 @@ async def run_service_episode(client, agent, snapshot, total_boxes):
     prompt = format_obs_http(public, private, total_boxes)
     # Run one episode loop
     for _ in range(agent.max_turns):
-        action_idx = await agent.decide(prompt)
+        decision_record = await agent.decide(prompt)
+        action_idx = decision_record.action_int
         if action_idx == -1:
             break
         # Step via service

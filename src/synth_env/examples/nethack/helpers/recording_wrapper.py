@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class RecordingNetHackEnvironment(NetHackEnvironment):
     """NetHack environment with automatic trajectory recording."""
     
-    def __init__(self, save_dir: str = "dev/nethack_trajectories", 
+    def __init__(self, save_dir: str = "temp/nethack_trajectories", 
                  auto_record: bool = True, **kwargs):
         """Initialize recording wrapper.
         

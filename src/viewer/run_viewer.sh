@@ -27,4 +27,4 @@ cd "$SCRIPT_DIR/frontend" || exit 1
 
 # Run Reflex
 echo "Starting Reflex viewer..."
-reflex run
+uv run reflex run

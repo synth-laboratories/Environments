@@ -1,2 +1,0 @@
-Trajectory ID,Model,Difficulty,Seed,Success,Steps,Turns,Reward,Total Achievements,Easy,Medium,Hard,Avg Actions/Turn,Termination,Final Health,Achievements
-84f42706,gpt-4o-mini,easy,1000,✓,36,10,-0.036,2,2,0,0,3.6,timeout,9,"collect_sapling, collect_wood"

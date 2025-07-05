@@ -1,2 +1,0 @@
-Trajectory ID,Model,Difficulty,Seed,Success,Steps,Turns,Reward,Total Achievements,Easy,Medium,Hard,Avg Actions/Turn,Termination,Final Health,Achievements
-63564503,gpt-4o-mini,easy,1000,✓,41,5,-0.041,1,1,0,0,8.2,timeout,9,collect_sapling

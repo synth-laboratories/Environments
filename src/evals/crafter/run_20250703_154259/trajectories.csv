@@ -1,2 +1,0 @@
-Trajectory ID,Model,Difficulty,Seed,Success,Steps,Turns,Reward,Total Achievements,Easy,Medium,Hard,Avg Actions/Turn,Termination,Final Health,Achievements
-5ba1d066,gemini-1.5-flash,easy,1000,✓,104,30,-0.104,3,3,0,0,3.5,timeout,9,"collect_drink, collect_sapling, collect_wood"

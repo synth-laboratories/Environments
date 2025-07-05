@@ -1,2 +1,0 @@
-Model,Difficulty,Success Rate,Hafner Score,BALROG Avg,BALROG Best,Avg Steps,Avg Turns,Avg Reward,Unique Achievements,Avg Achievements/Traj,Avg Actions/Turn
-gemini-1.5-flash,easy,100.0%,0.9%,13.6%,13.6%,104.0,30.0,-0.104,3,3.00,3.5

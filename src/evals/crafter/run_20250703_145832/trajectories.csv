@@ -1,2 +1,0 @@
-Trajectory ID,Model,Difficulty,Seed,Success,Steps,Turns,Reward,Total Achievements,Easy,Medium,Hard,Avg Actions/Turn,Termination,Final Health,Achievements
-86caf820,gpt-4o-mini,easy,1000,✗,21,5,-0.021,0,0,0,0,4.2,timeout,9,None

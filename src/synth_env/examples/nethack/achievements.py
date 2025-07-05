@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 class Progress:
     def __init__(self, achievements_path=None):
         if achievements_path is None:
-            achievements_path = os.path.join(os.path.dirname(__file__), "achievements.json")
+            achievements_path = os.path.join(os.path.dirname(__file__), "helpers", "achievements.json")
         
         with open(achievements_path, "r") as f:
             self.achievements = json.load(f)["3.4.3"]
