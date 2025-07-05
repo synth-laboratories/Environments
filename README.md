@@ -63,6 +63,9 @@ ruff format .
 # Check codebase health
 python scripts/check_health.py
 
+# Pre-merge checklist (before creating PR)
+# See dev/pr_checklist.md for full guide
+
 # Release to PyPI (increment dev version)
 python scripts/release.py
 
