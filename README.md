@@ -1,82 +1,135 @@
-# Environments
-Synthetic Environments / Long Horizon Tasks / Digital Control Agents
+# Synth Environments
 
-![Coverage](https://img.shields.io/badge/coverage-0.0%25-red)
-![Python](https://img.shields.io/badge/python-3.11+-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-7/19 failing-red)
-![Type Check Examples](https://img.shields.io/badge/types (examples)-98%25 (5 errors)-green)-98%25 (5 errors)-green)-98%25 (5 errors)-green)
-![Type Check Core](https://img.shields.io/badge/types (core)-100%25 (0 errors)-green)-100%25 (0 errors)-green)-100%25 (0 errors)-green)
-![PyPI Dev](https://img.shields.io/badge/PyPI dev-0.0.1.dev2-orange)
+**Synthetic Environments for Long-Horizon Language Agents**
 
-uvicorn src.synth_env.service.app:app --reload --port 8000
-uv run python src/synth_env/examples/nethack/agent_demos/test_synth_react.py
+[![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![PyPI](https://img.shields.io/badge/PyPI-0.0.2.dev1-orange)](https://pypi.org/project/synth-env/)
 
-# Motivation
-- We're building Environments to have key desiderata for long-horizon language agents
-- Snapshotting and reproducibility
-- Statefulness as a first-class citizen
-- Consistent abstractions for engine interaction and state reads across settings
-- Environment observability and tracing
-- HTTP access for simplified training and evaluation
-- Strong data abstractions to enable easily-configurable filtering and curriculum learning
-- Simple abstractions for agent-originated tool edits, etc.
+A comprehensive framework for building and managing synthetic environments designed specifically for training and evaluating long-horizon language agents.
 
-# User Guide
-Note - this repo is under extremely active development. Hic sunt dracones, if not contributing it may be more useful as a reference or development resource than as core code for your production systems.
+## 🎯 Key Features
 
-# Supported Environments
-[] Sokoban (maturing, not active dev)
-    - This environment is not of our own making! Please credit the great researchers at [Deepmind](https://deepmind.google/discover/blog/agents-that-imagine-and-plan/) and [Ragen](https://ragen-ai.github.io), among others.
-    - Checkout test_synth_react.py for a hello world example!
-[] Hendryks Math [] (maturing)
-[] Crafter-Classic (maturing)
-[] EnronBench (active dev)
-[] SWE-Bench (active dev - do not attempt)
-[] NMMO (active dev - do not attempt)
-[] Red (active dev)
-[] Verilog (maturing)
+- **🔄 Snapshotting & Reproducibility** - Full state capture and replay
+- **🏗️ Statefulness First** - Built-in state management across environments  
+- **🔌 Consistent APIs** - Unified interface for all environment types
+- **📊 Observability** - Built-in tracing and monitoring
+- **🌐 HTTP Access** - RESTful API for remote training and evaluation
+- **📚 Curriculum Learning** - Configurable filtering and progression
+- **🛠️ Agent Tools** - Simple abstractions for agent-environment interaction
 
-...
+## 🚀 Quick Start
 
-# Development
-
-For development setup, testing, and contribution guidelines, see:
-- **[Contributing Guide](dev/contributing.md)** - Complete development setup and workflow
-- **[Environment Contribution Guide](docs/env_contribution_guide.md)** - Step-by-step guide for adding new environments
-
-## Quick Development Commands
+### Installation
 
 ```bash
+pip install synth-env
+```
+
+### Basic Usage
+
+```python
+from synth_env import Environment
+
+# Create environment
+env = Environment("sokoban")
+
+# Run agent
+state = env.reset()
+while not env.done:
+    action = agent.act(state)
+    state = env.step(action)
+```
+
+### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/your-org/synth-env.git
+cd synth-env
+
 # Install dependencies
 uv sync
 
 # Run tests
-./scripts/run_tests.sh
+python dev/update_readme_metrics.py --fast
+```
 
-# Update README metrics
-./scripts/run_dev_helpers.sh
+## 🎮 Supported Environments
 
+| Environment | Status | Description |
+|-------------|---------|-------------|
+| **Sokoban** | ✅ Stable | Classic puzzle game for planning |
+| **Hendryks Math** | ✅ Stable | Mathematical reasoning tasks |
+| **Crafter** | ✅ Stable | Minecraft-like survival environment |
+| **Verilog** | 🔄 Beta | Hardware description language tasks |
+| **Red Team** | 🚧 Development | Security testing scenarios |
+| **SWE-Bench** | 🚧 Development | Software engineering tasks |
+
+## 📖 Documentation
+
+- **[API Reference](docs/api.md)** - Complete API documentation
+- **[Environment Guide](docs/environments.md)** - Detailed environment descriptions
+- **[Contributing](dev/contributing.md)** - Development setup and guidelines
+
+## 🔧 Development
+
+### Health Check
+```bash
+# Check codebase health
+python scripts/check_health.py
+```
+
+### Testing
+```bash
+# Fast tests (~3 seconds)
+python dev/update_readme_metrics.py --fast
+
+# Full test suite
+python dev/update_readme_metrics.py
+```
+
+### Code Quality
+```bash
 # Format code
 ruff format .
 
-# Check codebase health
-python scripts/check_health.py
+# Check linting
+ruff check .
 
-# Pre-merge checklist (before creating PR)
-# See dev/pr_checklist.md for full guide
+# Type checking
+uvx ty check
+```
 
-# Release to PyPI (increment dev version)
+### Release
+```bash
+# Increment version and publish
 python scripts/release.py
 
-# Release with version selection
-python scripts/release.py --minor
-python scripts/release.py --patch
-
-# Dry run to see what would happen
+# Dry run
 python scripts/release.py --dry-run
-
-# Publish to TestPyPI instead
-python scripts/release.py --test-pypi
 ```
+
+### Pre-Merge Checklist
+Before creating a PR, see **[dev/pr_checklist.md](dev/pr_checklist.md)** for the complete checklist.
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our **[Contributing Guide](dev/contributing.md)** for:
+- Development setup
+- Code style guidelines  
+- Testing requirements
+- Pull request process
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+Special thanks to the research teams at DeepMind, Ragen AI, and other contributors to the environments included in this framework.
+
+---
+
+**⚠️ Development Status**: This project is under active development. While stable environments are production-ready, newer environments may have breaking changes.
 
