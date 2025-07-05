@@ -38,6 +38,10 @@ class InstanceStorage:
 
     async def store(self, env_id: str, env: StatefulEnvironment):
         """Store an environment instance"""
+        # ALWAYS store in-memory as fallback
+        instances[env_id] = env
+        
+        # ALSO try to store in Redis if available (but don't rely on it)
         if REDIS_AVAILABLE and redis_client:
             try:
                 # Serialize the environment using pickle and base64 encode
@@ -45,49 +49,55 @@ class InstanceStorage:
                 await redis_client.set(
                     f"env_instance:{env_id}", serialized, ex=3600
                 )  # 1 hour TTL
-                print(f"✅ Stored environment {env_id} in Redis")
+                print(f"✅ Stored environment {env_id} in Redis + in-memory")
             except Exception as e:
-                print(f"⚠️ Redis storage failed, using in-memory: {e}")
-                instances[env_id] = env
+                print(f"⚠️ Redis storage failed, using in-memory fallback: {e}")
         else:
-            instances[env_id] = env
+            print(f"✅ Stored environment {env_id} in-memory (Redis not available)")
 
     async def get(self, env_id: str) -> Optional[StatefulEnvironment]:
         """Retrieve an environment instance"""
+        # Try in-memory first (most reliable)
+        if env_id in instances:
+            print(f"✅ Retrieved environment {env_id} from in-memory store")
+            return instances[env_id]
+        
+        # Fallback to Redis if not in memory
         if REDIS_AVAILABLE and redis_client:
             try:
                 serialized = await redis_client.get(f"env_instance:{env_id}")
                 if serialized:
                     # Deserialize from base64 and pickle
                     env = pickle.loads(base64.b64decode(serialized))
-                    print(f"✅ Retrieved environment {env_id} from Redis")
+                    print(f"✅ Retrieved environment {env_id} from Redis (restored to memory)")
+                    # Store back in memory for next time
+                    instances[env_id] = env
                     return env
-                else:
-                    print(
-                        f"❌ Environment {env_id} not found in Redis, checking in-memory store"
-                    )
-                    return instances.get(env_id)
             except Exception as e:
-                print(f"⚠️ Redis retrieval failed, checking in-memory: {e}")
-                return instances.get(env_id)
-        else:
-            return instances.get(env_id)
+                print(f"⚠️ Redis retrieval failed: {e}")
+        
+        print(f"❌ Environment {env_id} not found in either store")
+        return None
 
     async def remove(self, env_id: str) -> Optional[StatefulEnvironment]:
         """Remove and return an environment instance"""
+        # Get the environment first
+        env = await self.get(env_id)
+        
+        # Remove from in-memory store
+        removed_env = instances.pop(env_id, None)
+        
+        # Also try to remove from Redis
         if REDIS_AVAILABLE and redis_client:
             try:
-                # Get the environment first
-                env = await self.get(env_id)
-                if env:
-                    await redis_client.delete(f"env_instance:{env_id}")
-                    print(f"✅ Removed environment {env_id} from Redis")
-                return env
+                await redis_client.delete(f"env_instance:{env_id}")
+                print(f"✅ Removed environment {env_id} from both Redis and in-memory")
             except Exception as e:
-                print(f"⚠️ Redis removal failed, using in-memory: {e}")
-                return instances.pop(env_id, None)
+                print(f"⚠️ Redis removal failed, removed from in-memory: {e}")
         else:
-            return instances.pop(env_id, None)
+            print(f"✅ Removed environment {env_id} from in-memory")
+        
+        return env or removed_env
 
 
 # Global storage instance
@@ -229,11 +239,13 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
         )
 
         # Format response
+        # FIX: StatefulEnvironment.step() returns observation dict directly,
+        # not a dict with 'observation', 'reward', 'done', 'info' keys
         response = {
-            "observation": result.get("observation", {}),
-            "reward": result.get("reward", None),
-            "done": result.get("done", False),
-            "info": result.get("info", {}),
+            "observation": result,  # result IS the observation
+            "reward": result.get("reward_last", None),  # Try to get reward from obs
+            "done": result.get("terminated", False) or result.get("truncated", False),
+            "info": {"terminated": result.get("terminated", False), "truncated": result.get("truncated", False)},
         }
         print(
             f"🌐 ENVIRONMENTS SERVICE {request_id}: Returning response with keys: {list(response.keys())}",
