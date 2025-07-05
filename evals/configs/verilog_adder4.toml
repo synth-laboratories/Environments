@@ -1,6 +1,0 @@
-[eval]
-env = "verilog"
-model_name = "gpt-4o-mini"
-suite = "adder4"
-episodes = 5
-seed = 2025 
