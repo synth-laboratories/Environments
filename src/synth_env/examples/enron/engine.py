@@ -17,7 +17,7 @@ from synth_env.stateful.engine import StatefulEngine, StatefulEngineSnapshot
 from synth_env.examples.enron.taskset import EnronTaskInstance
 from synth_ai.zyk import LM  # Import LM class
 
-from .db.sqlite import SQLiteManager
+from synth_env.environment.db.sqlite import SQLiteManager
 from synth_env.environment.rewards.core import RewardStack, RewardComponent
 from synth_env.examples.enron.art_helpers.local_email_db import (
     DEFAULT_DB_PATH,
@@ -181,61 +181,6 @@ class EnronEngine(StatefulEngine):
     def close_db(self):
         self.sqlite_manager.close()
 
-
-# ----------------------------- LLM Judge for answers
-async def determine_if_answer_is_correct(
-    question: str, gold_answer: str, agent_answer: str
-) -> bool:
-    # Instantiate LM for the judge
-    llm = LM(
-        model_name="gpt-4.1-nano", formatting_model_name="gpt-4.1-nano", temperature=0.0
-    )
-
-    system_prompt = (
-        "You will be given a question and two different answers to the question, "
-        "the correct answer and the answer given by an AI. Your job is to determine "
-        "if the answer given by the AI is correct."
-    )
-    user_message_content = f"Question: {question}\nCorrect answer: {gold_answer}\nAI answer: {agent_answer}"
-
-    class CorrectnessResponse(BaseModel):
-        correct: bool
-
-    # Use LM.respond_async
-    response = await llm.respond_async(
-        system_message=system_prompt,
-        user_message=user_message_content,
-        response_model=CorrectnessResponse,
-        # Caching is typically handled within the LM class or its underlying setup
-    )
-    return response.structured_output.correct
-
-
-# --- Placeholder Reward Components (ideally defined elsewhere and imported) ---
-# (These would typically live in a shared rewards components file or alongside the engine if very specific)
-class EnronAnswerCorrectnessComponent(RewardComponent):
-    async def score(self, state: Dict[str, Any], action: Any) -> float:
-        if state.get("is_answer_action") and state.get("agent_answer") is not None:
-            # determine_if_answer_is_correct should be part of the engine or accessible
-            # For now, assuming it's available in this scope.
-            correct = await determine_if_answer_is_correct(
-                state["question"], state["gold_answer"], state["agent_answer"]
-            )
-            return 1.0 if correct else -1.0
-        return 0.0
-
-
-class EnronStepPenaltyComponent(RewardComponent):
-    def __init__(self, penalty: float = -0.01):
-        self.penalty = penalty
-
-    async def score(self, state: Dict[str, Any], action: Any) -> float:
-        # Apply penalty for any action that isn't a final answer, or just every step.
-        # For simplicity, apply if not a "correct" answer action.
-        if not state.get("is_answer_action"):
-            return self.penalty
-        return 0.0
-
     async def _calculate_and_apply_reward(self) -> float:
         s = self._sample()
         reward_context_state = {  # State snapshot for reward calculation
@@ -293,3 +238,58 @@ class EnronStepPenaltyComponent(RewardComponent):
             "agent_answer": agent_answer,
         }
         self.answered = True  # Mark as answered, termination decided by reward logic
+
+
+# ----------------------------- LLM Judge for answers
+async def determine_if_answer_is_correct(
+    question: str, gold_answer: str, agent_answer: str
+) -> bool:
+    # Instantiate LM for the judge
+    llm = LM(
+        model_name="gpt-4.1-nano", formatting_model_name="gpt-4.1-nano", temperature=0.0
+    )
+
+    system_prompt = (
+        "You will be given a question and two different answers to the question, "
+        "the correct answer and the answer given by an AI. Your job is to determine "
+        "if the answer given by the AI is correct."
+    )
+    user_message_content = f"Question: {question}\nCorrect answer: {gold_answer}\nAI answer: {agent_answer}"
+
+    class CorrectnessResponse(BaseModel):
+        correct: bool
+
+    # Use LM.respond_async
+    response = await llm.respond_async(
+        system_message=system_prompt,
+        user_message=user_message_content,
+        response_model=CorrectnessResponse,
+        # Caching is typically handled within the LM class or its underlying setup
+    )
+    return response.structured_output.correct
+
+
+# --- Placeholder Reward Components (ideally defined elsewhere and imported) ---
+# (These would typically live in a shared rewards components file or alongside the engine if very specific)
+class EnronAnswerCorrectnessComponent(RewardComponent):
+    async def score(self, state: Dict[str, Any], action: Any) -> float:
+        if state.get("is_answer_action") and state.get("agent_answer") is not None:
+            # determine_if_answer_is_correct should be part of the engine or accessible
+            # For now, assuming it's available in this scope.
+            correct = await determine_if_answer_is_correct(
+                state["question"], state["gold_answer"], state["agent_answer"]
+            )
+            return 1.0 if correct else -1.0
+        return 0.0
+
+
+class EnronStepPenaltyComponent(RewardComponent):
+    def __init__(self, penalty: float = -0.01):
+        self.penalty = penalty
+
+    async def score(self, state: Dict[str, Any], action: Any) -> float:
+        # Apply penalty for any action that isn't a final answer, or just every step.
+        # For simplicity, apply if not a "correct" answer action.
+        if not state.get("is_answer_action"):
+            return self.penalty
+        return 0.0

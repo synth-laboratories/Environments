@@ -27,12 +27,13 @@ from .engine import (
 
 
 class TicTacToeActionInput(BaseModel):
-    action: str  # "A1", "B2", etc.
+    letter: str  # "A", "B", or "C"
+    number: int  # 1, 2, or 3
 
 
 class TicTacToeInteractTool(AbstractTool):
     name = "interact"
-    description = "Place your mark (X or O) in the specified cell."
+    description = "Place your mark (X or O) in the specified cell using letter (A, B, C) and number (1, 2, 3) coordinates."
     call_schema = TicTacToeActionInput
     result_schema = ToolResult
 
@@ -41,12 +42,24 @@ class TicTacToeInteractTool(AbstractTool):
 
     async def __call__(self, call: EnvToolCall) -> ToolResult:
         try:
-            # Parse input
-            action = call.args.get("action")
-
-            if not action:
-                return ToolResult(ok=False, error="No action provided", payload={})
-
+            # Parse input - now using separate letter and number parameters
+            letter = call.args.get("letter")
+            number = call.args.get("number")
+            
+            if not letter or number is None:
+                return ToolResult(ok=False, error="Both letter and number parameters are required", payload={})
+            
+            # Validate letter
+            if letter not in ["A", "B", "C"]:
+                return ToolResult(ok=False, error=f"Letter must be A, B, or C, got '{letter}'", payload={})
+            
+            # Validate number
+            if number not in [1, 2, 3]:
+                return ToolResult(ok=False, error=f"Number must be 1, 2, or 3, got {number}", payload={})
+            
+            # Convert to coordinate string (e.g., "A1", "B2", etc.)
+            action = f"{letter}{number}"
+            
             # Execute action
             private_state, public_state = await self.engine._step_engine(action)
 
@@ -164,7 +177,38 @@ class TicTacToeEnvironment(
         if validated_call.tool != "interact":
             raise ValueError(f"Unknown tool: {validated_call.tool}")
 
-        return validated_call
+        # Convert legacy formats to new letter/number format
+        args = validated_call.args
+        if "position" in args:
+            # Convert numeric position (0-8) to letter/number
+            position = args["position"]
+            if position < 0 or position > 8:
+                raise ValueError(f"Position {position} must be between 0 and 8")
+            letter = ["A", "B", "C"][position // 3]
+            number = (position % 3) + 1
+            args = {"letter": letter, "number": number}
+        elif "action" in args:
+            # Convert coordinate string (e.g., "A1") to letter/number
+            action = args["action"]
+            if len(action) != 2:
+                raise ValueError(f"Action '{action}' must be 2 characters (e.g., 'A1')")
+            letter = action[0].upper()
+            try:
+                number = int(action[1])
+            except ValueError:
+                raise ValueError(f"Action '{action}' must have a numeric second character")
+            args = {"letter": letter, "number": number}
+        
+        # Validate final letter/number values
+        if "letter" in args and "number" in args:
+            letter = args["letter"]
+            number = args["number"]
+            if letter not in ["A", "B", "C"]:
+                raise ValueError(f"Letter must be A, B, or C, got '{letter}'")
+            if number not in [1, 2, 3]:
+                raise ValueError(f"Number must be 1, 2, or 3, got {number}")
+        
+        return EnvToolCall(tool=validated_call.tool, args=args)
 
     async def _to_observation(
         self,

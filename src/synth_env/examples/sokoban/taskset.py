@@ -7,13 +7,16 @@ from synth_env.tasks.core import (
 )
 from uuid import uuid4, UUID
 from synth_env.tasks.core import SplitInfo, Impetus, Intent
-from synth_env.examples.sokoban.engine_helpers.room_utils import (
-    generate_room,
-    get_shortest_action_path,
+from synth_env.examples.sokoban.puzzle_loader import (
+    get_puzzle_loader,
+    SokobanPuzzle,
 )
 from dataclasses import dataclass, asdict, fields
-from typing import Tuple
+from typing import Tuple, List
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 sokoban_task = Task(
     global_premises="Procedural Sokoban task generation",
@@ -23,26 +26,19 @@ sokoban_task = Task(
 )
 
 # Configuration parameters
-NUM_INSTANCES_PER_DIFFICULTY = 10
-SEED_START = 42
+NUM_INSTANCES_PER_DIFFICULTY = 10  # Number of puzzles to include per difficulty in the taskset
 DIFFICULTY_CONFIGS = {
+    "ultra_easy": {
+        "impetus_prompt": "Solve this very simple Sokoban puzzle by pushing the box onto the target.",
+    },
     "easy": {
-        "num_boxes": 1,
-        "dim_room": (5, 5),
-        "max_steps": 120,
         "impetus_prompt": "Solve this simple Sokoban puzzle by pushing the box onto the target.",
     },
     "medium": {
-        "num_boxes": 2,
-        "dim_room": (7, 7),
-        "max_steps": 200,
         "impetus_prompt": "Solve this Sokoban puzzle by pushing the 2 boxes onto the targets.",
     },
     "hard": {
-        "num_boxes": 4,
-        "dim_room": (10, 10),
-        "max_steps": 300,
-        "impetus_prompt": "Solve this challenging Sokoban puzzle by pushing the 4 boxes onto the targets.",
+        "impetus_prompt": "Solve this challenging Sokoban puzzle by pushing the 3 boxes onto the targets.",
     },
 }
 
@@ -101,24 +97,39 @@ class SokobanTaskInstance(TaskInstance):
 
 
 async def create_sokoban_taskset() -> TaskInstanceSet:
-    """Generates Sokoban task instances wrapped in a TaskInstanceSet."""
+    """Generates Sokoban task instances from pre-generated verified puzzles."""
     instances = []
-    current_seed = SEED_START
+    
+    # Load pre-generated puzzles
+    try:
+        puzzle_loader = get_puzzle_loader()
+        logger.info("Loading pre-generated Sokoban puzzles...")
+        puzzle_loader.load_puzzles()
+        logger.info(f"Loaded {puzzle_loader.get_total_puzzle_count()} total puzzles")
+    except Exception as e:
+        logger.error(f"Failed to load pre-generated puzzles: {e}")
+        logger.info("Falling back to empty taskset. Run generate_verified_puzzles.py first.")
+        return TaskInstanceSet(
+            name="Sokoban Verified TaskSet",
+            description="Verified pre-generated Sokoban tasks with guaranteed solvability.",
+            instances=[],
+            split_info=SplitInfo(val_instance_ids=set(), test_instance_ids=set(), _is_split_defined=True),
+        )
 
     for difficulty, config in DIFFICULTY_CONFIGS.items():
-        for i in range(NUM_INSTANCES_PER_DIFFICULTY):
+        available_puzzles = puzzle_loader.get_puzzles_by_difficulty(difficulty)
+        
+        if not available_puzzles:
+            logger.warning(f"No puzzles found for difficulty {difficulty}")
+            continue
+            
+        # Take up to NUM_INSTANCES_PER_DIFFICULTY puzzles
+        puzzles_to_use = available_puzzles[:NUM_INSTANCES_PER_DIFFICULTY]
+        logger.info(f"Using {len(puzzles_to_use)} puzzles for {difficulty} difficulty")
+        
+        for puzzle in puzzles_to_use:
             instance_id = uuid4()
-            room_structure, room_state, _, _ = generate_room(
-                dim=config["dim_room"],
-                initial_seed=current_seed,
-                num_boxes=config["num_boxes"],
-                search_depth=config["max_steps"],
-            )
-            shortest_actions = get_shortest_action_path(
-                room_structure, room_state, MAX_DEPTH=config["max_steps"]
-            )
-            path_length = len(shortest_actions)
-
+            
             impetus = Impetus(instructions=config["impetus_prompt"])
             intent = Intent(
                 rubric={"goal": "Push all boxes onto target locations."},
@@ -127,24 +138,26 @@ async def create_sokoban_taskset() -> TaskInstanceSet:
             )
             metadata = SokobanTaskInstanceMetadata(
                 difficulty=difficulty,
-                num_boxes=config["num_boxes"],
-                dim_room=config["dim_room"],
-                max_steps=config["max_steps"],
-                shortest_path_length=path_length,
-                seed=current_seed,
-                generation_params=f"dim={config['dim_room']}, boxes={config['num_boxes']}, steps={config['max_steps']}",
+                num_boxes=puzzle.num_boxes,
+                dim_room=puzzle.dim_room,
+                max_steps=puzzle.max_steps,
+                shortest_path_length=puzzle.solution_length,
+                seed=puzzle.generation_seed,
+                generation_params=f"verified_puzzle_id={puzzle.id}",
             )
 
+            # Use the puzzle data as the initial engine snapshot
+            initial_engine_snapshot = puzzle.to_engine_snapshot()
+            
             task_instance = SokobanTaskInstance(
                 id=instance_id,
                 impetus=impetus,
                 intent=intent,
                 metadata=metadata,
                 is_reproducible=True,
-                initial_engine_snapshot=None,
+                initial_engine_snapshot=initial_engine_snapshot,
             )
             instances.append(task_instance)
-            current_seed += 1
 
     class NumBoxesFilter(TaskInstanceMetadataFilter):
         def __init__(self, num_boxes):
@@ -193,11 +206,167 @@ async def create_sokoban_taskset() -> TaskInstanceSet:
     )
 
     return TaskInstanceSet(
-        name="Sokoban Procedural TaskSet",
-        description="Procedurally generated Sokoban tasks with varying difficulty.",
+        name="Sokoban Verified TaskSet",
+        description="Verified pre-generated Sokoban tasks with guaranteed solvability.",
         instances=instances,
         split_info=split_info,
     )
+
+async def create_easy_sokoban_taskset(num_instances: int = 50) -> TaskInstanceSet:
+    """Create a taskset with only easy difficulty puzzles."""
+    return await create_filtered_sokoban_taskset(
+        difficulties=["easy"], 
+        num_instances_per_difficulty=num_instances
+    )
+
+async def create_filtered_sokoban_taskset(
+    difficulties: List[str], 
+    num_instances_per_difficulty: int = 10
+) -> TaskInstanceSet:
+    """
+    Create a taskset with only specified difficulties.
+    
+    Args:
+        difficulties: List of difficulty levels to include
+        num_instances_per_difficulty: Number of instances per difficulty
+        
+    Returns:
+        TaskInstanceSet with only the specified difficulties
+    """
+    instances = []
+    
+    # Load pre-generated puzzles
+    try:
+        puzzle_loader = get_puzzle_loader()
+        logger.info("Loading pre-generated Sokoban puzzles...")
+        puzzle_loader.load_puzzles()
+        logger.info(f"Loaded {puzzle_loader.get_total_puzzle_count()} total puzzles")
+    except Exception as e:
+        logger.error(f"Failed to load pre-generated puzzles: {e}")
+        return TaskInstanceSet(
+            name="Sokoban Filtered TaskSet",
+            description=f"Filtered Sokoban tasks for difficulties: {', '.join(difficulties)}",
+            instances=[],
+            split_info=SplitInfo(val_instance_ids=set(), test_instance_ids=set(), _is_split_defined=True),
+        )
+
+    for difficulty in difficulties:
+        if difficulty not in DIFFICULTY_CONFIGS:
+            logger.warning(f"Unknown difficulty '{difficulty}', skipping")
+            continue
+            
+        config = DIFFICULTY_CONFIGS[difficulty]
+        available_puzzles = puzzle_loader.get_puzzles_by_difficulty(difficulty)
+        
+        if not available_puzzles:
+            logger.warning(f"No puzzles found for difficulty {difficulty}")
+            continue
+            
+        # Take up to num_instances_per_difficulty puzzles
+        puzzles_to_use = available_puzzles[:num_instances_per_difficulty]
+        logger.info(f"Using {len(puzzles_to_use)} puzzles for {difficulty} difficulty")
+        
+        for puzzle in puzzles_to_use:
+            instance_id = uuid4()
+            
+            impetus = Impetus(instructions=config["impetus_prompt"])
+            intent = Intent(
+                rubric={"goal": "Push all boxes onto target locations."},
+                gold_trajectories=None,
+                gold_state_diff={},
+            )
+            metadata = SokobanTaskInstanceMetadata(
+                difficulty=difficulty,
+                num_boxes=puzzle.num_boxes,
+                dim_room=puzzle.dim_room,
+                max_steps=puzzle.max_steps,
+                shortest_path_length=puzzle.solution_length,
+                seed=puzzle.generation_seed,
+                generation_params=f"verified_puzzle_id={puzzle.id}",
+            )
+
+            # Use the puzzle data as the initial engine snapshot
+            initial_engine_snapshot = puzzle.to_engine_snapshot()
+            
+            task_instance = SokobanTaskInstance(
+                id=instance_id,
+                impetus=impetus,
+                intent=intent,
+                metadata=metadata,
+                is_reproducible=True,
+                initial_engine_snapshot=initial_engine_snapshot,
+            )
+            instances.append(task_instance)
+
+    # Create simple split info for filtered set
+    val_ids = {inst.id for inst in instances[::3]}  # Every 3rd instance for validation
+    test_ids = {inst.id for inst in instances[1::3]}  # Every 3rd starting from 1 for test
+    split_info = SplitInfo(
+        val_instance_ids=val_ids,
+        test_instance_ids=test_ids,
+        _is_split_defined=True,
+    )
+
+    return TaskInstanceSet(
+        name="Sokoban Filtered TaskSet",
+        description=f"Filtered Sokoban tasks for difficulties: {', '.join(difficulties)}",
+        instances=instances,
+        split_info=split_info,
+    )
+
+async def create_task_instance_from_seed(difficulty: str, seed: int) -> SokobanTaskInstance:
+    """
+    Create a single task instance from a specific seed.
+    Uses modular arithmetic to deterministically select a puzzle.
+    
+    Args:
+        difficulty: The difficulty level 
+        seed: Seed for deterministic puzzle selection
+        
+    Returns:
+        Single SokobanTaskInstance
+    """
+    from synth_env.examples.sokoban.puzzle_loader import get_puzzle_by_seed
+    
+    puzzle = get_puzzle_by_seed(difficulty, seed)
+    if not puzzle:
+        raise ValueError(f"No puzzles available for difficulty '{difficulty}'")
+    
+    config = DIFFICULTY_CONFIGS.get(difficulty)
+    if not config:
+        raise ValueError(f"Unknown difficulty '{difficulty}'")
+    
+    instance_id = uuid4()
+    
+    impetus = Impetus(instructions=config["impetus_prompt"])
+    intent = Intent(
+        rubric={"goal": "Push all boxes onto target locations."},
+        gold_trajectories=None,
+        gold_state_diff={},
+    )
+    metadata = SokobanTaskInstanceMetadata(
+        difficulty=difficulty,
+        num_boxes=puzzle.num_boxes,
+        dim_room=puzzle.dim_room,
+        max_steps=puzzle.max_steps,
+        shortest_path_length=puzzle.solution_length,
+        seed=seed,  # Use the input seed, not the puzzle's generation seed
+        generation_params=f"verified_puzzle_id={puzzle.id}_from_seed={seed}",
+    )
+
+    # Use the puzzle data as the initial engine snapshot
+    initial_engine_snapshot = puzzle.to_engine_snapshot()
+    
+    task_instance = SokobanTaskInstance(
+        id=instance_id,
+        impetus=impetus,
+        intent=intent,
+        metadata=metadata,
+        is_reproducible=True,
+        initial_engine_snapshot=initial_engine_snapshot,
+    )
+    
+    return task_instance
 
 
 # Example usage

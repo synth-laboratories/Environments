@@ -42,9 +42,15 @@ register_environment("TicTacToe", ttt.TicTacToeEnvironment)
 import synth_env.examples.nethack.environment as nh
 
 register_environment("NetHack", nh.NetHackEnvironment)
-import synth_env.examples.algotune.environment as at
+# AlgoTune excluded from package due to size/complexity
+# import synth_env.examples.algotune.environment as at
+# register_environment("AlgoTune", at.AlgoTuneEnvironment)
+import synth_env.examples.minigrid.environment as mg
 
-register_environment("AlgoTune", at.AlgoTuneEnvironment)
+register_environment("MiniGrid", mg.MiniGridEnvironment)
+import synth_env.examples.enron.environment as enron
+
+register_environment("Enron", enron.EnronEnvironment)
 
 app = FastAPI(title="Environment Service")
 

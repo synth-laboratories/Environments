@@ -253,3 +253,11 @@ temp/
 
 !dev/
 !dev/**
+
+# Large database files and caches (excluded from PyPI)
+*.db
+*.sqlite*
+.cache/
+*.arrow
+*.npy
+*.npz
