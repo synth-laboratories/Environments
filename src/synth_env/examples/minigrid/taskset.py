@@ -168,6 +168,7 @@ class MiniGridTaskInstance(TaskInstance):
                 seed=data["metadata"].get("seed"),
             ),
             is_reproducible=data.get("is_reproducible", True),
+            initial_engine_snapshot=data.get("initial_engine_snapshot", None),
         )
 
 
