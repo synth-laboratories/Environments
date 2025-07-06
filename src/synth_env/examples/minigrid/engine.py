@@ -22,6 +22,11 @@ from synth_env.environment.shared_engine import (
     InternalObservation,
 )
 from synth_env.tasks.core import TaskInstance
+from synth_env.examples.minigrid.environment_mapping import (
+    get_environment_from_seed,
+    get_difficulty_from_seed,
+    validate_environment_name,
+)
 
 
 @dataclass
@@ -262,17 +267,50 @@ class MiniGridEngine(StatefulEngine, IReproducibleEngine):
         self.render_mode = render_mode
 
         # Get environment configuration from task instance
-        env_name = "MiniGrid-Empty-5x5-v0"  # Default
+        env_name = None
         seed = None
+        difficulty = None
 
+        # First try to get explicit configuration from metadata
         if hasattr(task_instance, "metadata"):
             if hasattr(task_instance.metadata, "env_name"):
                 env_name = task_instance.metadata.env_name
             if hasattr(task_instance.metadata, "seed"):
                 seed = task_instance.metadata.seed
+            if hasattr(task_instance.metadata, "difficulty"):
+                difficulty = task_instance.metadata.difficulty
+
+        # If no explicit env_name but we have a seed, use seed mapping
+        if env_name is None and seed is not None:
+            env_name = get_environment_from_seed(seed)
+            if difficulty is None:
+                difficulty = get_difficulty_from_seed(seed)
+
+        # If still no environment name, check if we can extract seed from config
+        if env_name is None and hasattr(task_instance, "initial_engine_snapshot"):
+            snapshot = task_instance.initial_engine_snapshot
+            if snapshot and isinstance(snapshot, dict):
+                config_seed = snapshot.get("seed")
+                if config_seed is not None:
+                    seed = config_seed
+                    env_name = get_environment_from_seed(seed)
+                    if difficulty is None:
+                        difficulty = get_difficulty_from_seed(seed)
+
+        # Final fallback to default environment
+        if env_name is None:
+            env_name = "MiniGrid-Empty-5x5-v0"
+            seed = 0  # Ensure we have a seed for reproducibility
+
+        # Validate the environment name
+        if not validate_environment_name(env_name):
+            print(f"Warning: Unknown environment '{env_name}', falling back to default")
+            env_name = "MiniGrid-Empty-5x5-v0"
+            seed = 0
 
         self.env_name = env_name
         self.seed = seed
+        self.difficulty = difficulty
 
         # Create the environment
         self.env = gym.make(self.env_name, render_mode=self.render_mode)

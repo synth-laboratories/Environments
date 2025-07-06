@@ -135,45 +135,52 @@ class TestTicTacToeEnvironment:
         call = EnvToolCall(tool="interact", args={"action": "A1"})
         validated = env.validate_tool_calls(call)
         assert validated.tool == "interact"
-        assert validated.args["action"] == "A1"
+        assert validated.args["letter"] == "A"
+        assert validated.args["number"] == 1
 
         # Test dict with tool/args
         validated = env.validate_tool_calls(
             {"tool": "interact", "args": {"action": "B2"}}
         )
         assert validated.tool == "interact"
-        assert validated.args["action"] == "B2"
+        assert validated.args["letter"] == "B"
+        assert validated.args["number"] == 2
 
         # Test dict with name/parameters (legacy)
         validated = env.validate_tool_calls(
             {"name": "interact", "parameters": {"action": "C3"}}
         )
         assert validated.tool == "interact"
-        assert validated.args["action"] == "C3"
+        assert validated.args["letter"] == "C"
+        assert validated.args["number"] == 3
 
         # Test OpenAI function format
         validated = env.validate_tool_calls(
             {"function": {"name": "interact", "arguments": {"action": "A2"}}}
         )
         assert validated.tool == "interact"
-        assert validated.args["action"] == "A2"
+        assert validated.args["letter"] == "A"
+        assert validated.args["number"] == 2
 
         # Test bare dict (assumed to be args)
         validated = env.validate_tool_calls({"action": "B1"})
         assert validated.tool == "interact"
-        assert validated.args["action"] == "B1"
+        assert validated.args["letter"] == "B"
+        assert validated.args["number"] == 1
 
         # Test list format
         validated = env.validate_tool_calls(
             [{"tool": "interact", "args": {"action": "C1"}}]
         )
         assert validated.tool == "interact"
-        assert validated.args["action"] == "C1"
+        assert validated.args["letter"] == "C"
+        assert validated.args["number"] == 1
 
         # Test string conversion
         validated = env.validate_tool_calls("A3")
         assert validated.tool == "interact"
-        assert validated.args["action"] == "A3"
+        assert validated.args["letter"] == "A"
+        assert validated.args["number"] == 3
 
     @pytest.mark.asyncio
     async def test_validate_tool_calls_errors(self, simple_task_instance):
@@ -264,7 +271,7 @@ class TestTicTacToeInteractTool:
         engine = TicTacToeEngine(simple_task_instance)
         tool = TicTacToeInteractTool(engine)
 
-        call = EnvToolCall(tool="interact", args={"action": "B2"})
+        call = EnvToolCall(tool="interact", args={"letter": "B", "number": 2})
         result = await tool(call)
 
         assert result.ok
@@ -282,10 +289,10 @@ class TestTicTacToeInteractTool:
         tool = TicTacToeInteractTool(engine)
 
         # Make a move first
-        await tool(EnvToolCall(tool="interact", args={"action": "B2"}))
+        await tool(EnvToolCall(tool="interact", args={"letter": "B", "number": 2}))
 
         # Try same cell again
-        call = EnvToolCall(tool="interact", args={"action": "B2"})
+        call = EnvToolCall(tool="interact", args={"letter": "B", "number": 2})
         result = await tool(call)
 
         assert result.ok
@@ -302,7 +309,7 @@ class TestTicTacToeInteractTool:
         result = await tool(call)
 
         assert not result.ok
-        assert result.error == "No action provided"
+        assert result.error == "Both letter and number parameters are required"
 
     @pytest.mark.asyncio
     async def test_interact_tool_exception_handling(self, simple_task_instance):
@@ -311,22 +318,180 @@ class TestTicTacToeInteractTool:
         tool = TicTacToeInteractTool(engine)
 
         # Force an exception by passing invalid data type
-        call = EnvToolCall(tool="interact", args={"action": None})
+        call = EnvToolCall(tool="interact", args={"letter": "A", "number": None})
         result = await tool(call)
 
         assert not result.ok
-        assert result.error == "No action provided"
+        assert result.error == "Both letter and number parameters are required"
 
 
 class TestTicTacToeActionInput:
     def test_action_input_model(self):
         """Test TicTacToeActionInput Pydantic model."""
         # Valid input
-        input_model = TicTacToeActionInput(action="A1")
-        assert input_model.action == "A1"
+        input_model = TicTacToeActionInput(letter="A", number=1)
+        assert input_model.letter == "A"
+        assert input_model.number == 1
 
         # Test schema
         schema = TicTacToeActionInput.model_json_schema()
         assert "properties" in schema
-        assert "action" in schema["properties"]
-        assert schema["properties"]["action"]["type"] == "string"
+        assert "letter" in schema["properties"]
+        assert "number" in schema["properties"]
+        assert schema["properties"]["letter"]["type"] == "string"
+        assert schema["properties"]["number"]["type"] == "integer"
+
+
+class TestTicTacToeValidation:
+    """Test validation fixes for TicTacToe environment."""
+    
+    @pytest.mark.asyncio
+    async def test_position_validation_valid_positions(self, simple_task_instance):
+        """Test that valid positions (0-8) are correctly converted."""
+        env = TicTacToeEnvironment(simple_task_instance)
+        
+        # Test all valid positions
+        valid_positions = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+        expected_conversions = [
+            ("A", 1), ("A", 2), ("A", 3),
+            ("B", 1), ("B", 2), ("B", 3),
+            ("C", 1), ("C", 2), ("C", 3)
+        ]
+        
+        for pos, (expected_letter, expected_number) in zip(valid_positions, expected_conversions):
+            validated_call = env.validate_tool_calls({
+                "tool": "interact",
+                "args": {"position": pos}
+            })
+            assert validated_call.args["letter"] == expected_letter
+            assert validated_call.args["number"] == expected_number
+    
+    @pytest.mark.asyncio 
+    async def test_position_validation_invalid_positions(self, simple_task_instance):
+        """Test that invalid positions are properly rejected."""
+        env = TicTacToeEnvironment(simple_task_instance)
+        
+        invalid_positions = [-1, 9, 10, 100, -5]
+        
+        for pos in invalid_positions:
+            with pytest.raises(ValueError, match=f"Position {pos} must be between 0 and 8"):
+                env.validate_tool_calls({
+                    "tool": "interact",
+                    "args": {"position": pos}
+                })
+    
+    @pytest.mark.asyncio
+    async def test_coordinate_validation_valid_coordinates(self, simple_task_instance):
+        """Test that valid coordinate strings are correctly converted."""
+        env = TicTacToeEnvironment(simple_task_instance)
+        
+        valid_coords = ["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"]
+        
+        for coord in valid_coords:
+            validated_call = env.validate_tool_calls({
+                "tool": "interact",
+                "args": {"action": coord}
+            })
+            expected_letter = coord[0]
+            expected_number = int(coord[1])
+            assert validated_call.args["letter"] == expected_letter
+            assert validated_call.args["number"] == expected_number
+    
+    @pytest.mark.asyncio
+    async def test_coordinate_validation_invalid_coordinates(self, simple_task_instance):
+        """Test that invalid coordinate strings are properly rejected."""
+        env = TicTacToeEnvironment(simple_task_instance)
+        
+        # Test invalid numbers
+        with pytest.raises(ValueError, match="Number must be 1, 2, or 3, got 0"):
+            env.validate_tool_calls({"tool": "interact", "args": {"action": "A0"}})
+        
+        with pytest.raises(ValueError, match="Number must be 1, 2, or 3, got 4"):
+            env.validate_tool_calls({"tool": "interact", "args": {"action": "A4"}})
+        
+        # Test invalid letters
+        with pytest.raises(ValueError, match="Letter must be A, B, or C, got 'D'"):
+            env.validate_tool_calls({"tool": "interact", "args": {"action": "D1"}})
+        
+        with pytest.raises(ValueError, match="Letter must be A, B, or C, got 'Z'"):
+            env.validate_tool_calls({"tool": "interact", "args": {"action": "Z9"}})
+        
+        # Test invalid format
+        with pytest.raises(ValueError, match="Action '' must be 2 characters"):
+            env.validate_tool_calls({"tool": "interact", "args": {"action": ""}})
+        
+        with pytest.raises(ValueError, match="Action '1A' must have a numeric second character"):
+            env.validate_tool_calls({"tool": "interact", "args": {"action": "1A"}})
+        
+        with pytest.raises(ValueError, match="Action 'BB' must have a numeric second character"):
+            env.validate_tool_calls({"tool": "interact", "args": {"action": "BB"}})
+    
+    @pytest.mark.asyncio
+    async def test_direct_letter_number_validation_valid(self, simple_task_instance):
+        """Test that valid letter/number combinations work."""
+        env = TicTacToeEnvironment(simple_task_instance)
+        
+        valid_combinations = [
+            ("A", 1), ("A", 2), ("A", 3),
+            ("B", 1), ("B", 2), ("B", 3),
+            ("C", 1), ("C", 2), ("C", 3)
+        ]
+        
+        for letter, number in valid_combinations:
+            validated_call = env.validate_tool_calls({
+                "tool": "interact",
+                "args": {"letter": letter, "number": number}
+            })
+            assert validated_call.args["letter"] == letter
+            assert validated_call.args["number"] == number
+    
+    @pytest.mark.asyncio
+    async def test_direct_letter_number_validation_invalid(self, simple_task_instance):
+        """Test that invalid letter/number combinations are rejected."""
+        env = TicTacToeEnvironment(simple_task_instance)
+        
+        # Test invalid numbers
+        with pytest.raises(ValueError, match="Number must be 1, 2, or 3, got 0"):
+            env.validate_tool_calls({"tool": "interact", "args": {"letter": "A", "number": 0}})
+        
+        with pytest.raises(ValueError, match="Number must be 1, 2, or 3, got 4"):
+            env.validate_tool_calls({"tool": "interact", "args": {"letter": "A", "number": 4}})
+        
+        # Test invalid letters
+        with pytest.raises(ValueError, match="Letter must be A, B, or C, got 'D'"):
+            env.validate_tool_calls({"tool": "interact", "args": {"letter": "D", "number": 1}})
+        
+        with pytest.raises(ValueError, match="Letter must be A, B, or C, got 'a'"):
+            env.validate_tool_calls({"tool": "interact", "args": {"letter": "a", "number": 1}})
+        
+        with pytest.raises(ValueError, match="Letter must be A, B, or C, got ''"):
+            env.validate_tool_calls({"tool": "interact", "args": {"letter": "", "number": 1}})
+        
+        with pytest.raises(ValueError, match="Letter must be A, B, or C, got 'AB'"):
+            env.validate_tool_calls({"tool": "interact", "args": {"letter": "AB", "number": 1}})
+    
+    @pytest.mark.asyncio
+    async def test_tool_validates_before_execution(self, simple_task_instance):
+        """Test that the tool validates inputs before execution."""
+        env = TicTacToeEnvironment(simple_task_instance)
+        
+        # Test invalid letter directly on tool
+        result = await env._interact_tool(
+            EnvToolCall(tool="interact", args={"letter": "Z", "number": 1})
+        )
+        assert not result.ok
+        assert "Letter must be A, B, or C, got 'Z'" in result.error
+        
+        # Test invalid number directly on tool
+        result = await env._interact_tool(
+            EnvToolCall(tool="interact", args={"letter": "A", "number": 0})
+        )
+        assert not result.ok
+        assert "Number must be 1, 2, or 3, got 0" in result.error
+        
+        # Test missing parameters
+        result = await env._interact_tool(
+            EnvToolCall(tool="interact", args={})
+        )
+        assert not result.ok
+        assert "Both letter and number parameters are required" in result.error

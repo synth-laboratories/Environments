@@ -49,8 +49,8 @@ class SokobanInteractTool(AbstractTool):
             return ToolResult(
                 ok=True,
                 payload={
-                    "public": dataclasses.asdict(pub_state),
-                    "private": dataclasses.asdict(priv_state),
+                    "public": pub_state.to_dict(),
+                    "private": priv_state.to_dict(),
                 },
             )
         except Exception as e:
@@ -59,7 +59,7 @@ class SokobanInteractTool(AbstractTool):
             return ToolResult(
                 ok=False,
                 error=str(e),
-                payload={"public": dataclasses.asdict(pub_state_on_error)},
+                payload={"public": pub_state_on_error.to_dict()},
             )
 
 

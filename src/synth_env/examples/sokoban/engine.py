@@ -15,7 +15,10 @@ from synth_env.examples.sokoban.taskset import (
 from synth_env.reproducibility.core import IReproducibleEngine  # Added import
 import logging
 from synth_env.environment.rewards.core import RewardStack, RewardComponent
-from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP, SokobanEnv as GymSokobanEnv
+from synth_env.examples.sokoban.engine_helpers.vendored.envs.sokoban_env import ACTION_LOOKUP, SokobanEnv as GymSokobanEnv
+import numpy as np
+
+# No monkey-patch needed - we fixed the vendored code directly
 
 # Configure logging for debugging SokobanEngine steps
 logger = logging.getLogger(__name__)
@@ -72,6 +75,29 @@ class SokobanPublicState:
     def room_text(self) -> str:
         """ASCII visualization of the room state"""
         return _grid_to_text(self.room_state)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary with proper numpy array serialization."""
+        return {
+            "dim_room": self.dim_room,
+            "room_fixed": self.room_fixed.tolist(),  # Convert numpy array to list
+            "room_state": self.room_state.tolist(),  # Convert numpy array to list
+            "player_position": self.player_position,
+            "boxes_on_target": self.boxes_on_target,
+            "num_steps": self.num_steps,
+            "max_steps": self.max_steps,
+            "last_action_name": self.last_action_name,
+            "num_boxes": self.num_boxes,
+            "error_info": self.error_info,
+        }
+    
+    def __repr__(self) -> str:
+        """Safe string representation that avoids numpy array recursion."""
+        return f"SokobanPublicState(dim_room={self.dim_room}, num_steps={self.num_steps}, boxes_on_target={self.boxes_on_target})"
+    
+    def __str__(self) -> str:
+        """Safe string representation that avoids numpy array recursion."""
+        return self.__repr__()
 
 
 @dataclass
@@ -89,6 +115,24 @@ class SokobanPrivateState:
             if new_v != old_v:
                 changes[field] = (old_v, new_v)
         return changes
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary with proper serialization."""
+        return {
+            "reward_last": self.reward_last,
+            "total_reward": self.total_reward,
+            "terminated": self.terminated,
+            "truncated": self.truncated,
+            "rng_state": self.rng_state,
+        }
+    
+    def __repr__(self) -> str:
+        """Safe string representation."""
+        return f"SokobanPrivateState(reward_last={self.reward_last}, total_reward={self.total_reward}, terminated={self.terminated})"
+    
+    def __str__(self) -> str:
+        """Safe string representation."""
+        return self.__repr__()
 
 
 # Note - just how we roll! Show your agent whatever state you want
@@ -260,32 +304,14 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
                 self.package_sokoban_env.room_state
             )
         else:
-            # If no snapshot, create a default PackageSokobanEnv.
-            # This ensures the attribute exists immediately.
-            # _reset_engine will later properly reset/reconfigure it.
-            # Using defaults that are common or match SIMPLE_SNAPSHOT for robustness.
-            default_dim_room = (4, 4)
-            default_max_steps = 10
-            default_num_boxes = 1
-
-            dim_param = default_dim_room
-            max_steps_param = default_max_steps
-            num_boxes_param = default_num_boxes
-
-            if (
-                hasattr(self.task_instance, "metadata")
-                and self.task_instance.metadata is not None
-            ):
-                meta = self.task_instance.metadata
-                dim_param = tuple(getattr(meta, "dim_room", default_dim_room))
-                max_steps_param = getattr(meta, "max_steps", default_max_steps)
-                # num_boxes might be part of puzzle_id or other metadata, using default for simplicity here.
-
+            # No initial snapshot - this should not happen with the new pre-generated puzzle system
+            # Create a minimal default environment as fallback
+            logger.warning("No initial_engine_snapshot provided - this should not happen with verified puzzles")
             self.package_sokoban_env = GymSokobanEnv(
-                dim_room=dim_param,
-                max_steps=max_steps_param,
-                num_boxes=num_boxes_param,
-                reset=True,  # Must reset if creating from scratch
+                dim_room=(5, 5),
+                max_steps=50,
+                num_boxes=1,
+                reset=False,  # Don't reset during creation to avoid generation
             )
 
     # gives the observation!
@@ -417,15 +443,21 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
                 self.package_sokoban_env.room_state
             )
         else:
-            raise Exception
-            # # brand-new level — pull dimensions / boxes from task config if present
-            # cfg = getattr(self.task_instance, "config", {})
-            # self.package_sokoban_env = PackageSokobanEnv(
-            #     dim_room=tuple(cfg.get("dim_room", (5, 5))),
-            #     max_steps=cfg.get("max_steps", 120),
-            #     num_boxes=cfg.get("num_boxes", 1),
-            # )
-            # _ = self.package_sokoban_env.reset()
+            # No initial snapshot - this should not happen with the new pre-generated puzzle system
+            logger.warning("No initial_engine_snapshot provided during reset - this should not happen with verified puzzles")
+            # Simple fallback: try to reset the existing environment
+            try:
+                _ = self.package_sokoban_env.reset(seed=seed)
+                # Update the boxes_on_target counter
+                self.package_sokoban_env.boxes_on_target = _count_boxes_on_target(
+                    self.package_sokoban_env.room_state
+                )
+            except Exception as e:
+                logger.error(f"Failed to reset environment: {e}")
+                raise RuntimeError(
+                    "Environment reset failed. This should not happen with verified puzzles. "
+                    "Ensure task instances have initial_engine_snapshot."
+                ) from e
 
         # build first public/private views
         priv = SokobanPrivateState(

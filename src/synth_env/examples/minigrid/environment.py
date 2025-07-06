@@ -140,7 +140,7 @@ class MiniGridEnvironment(StatefulEnvironment, ReproducibleEnvironment[MiniGridE
         )
 
     async def step(
-        self, tool_calls: Union[List[Dict[str, Any]], Dict[str, Any]]
+        self, tool_calls: Union[List[Dict[str, Any]], List[EnvToolCall], Dict[str, Any], EnvToolCall]
     ) -> InternalObservation:
         """Process a tool call and return observation."""
         validated_call = self.validate_tool_calls(tool_calls)
@@ -176,7 +176,7 @@ class MiniGridEnvironment(StatefulEnvironment, ReproducibleEnvironment[MiniGridE
         )
 
     def validate_tool_calls(
-        self, tool_calls: Union[List[Dict[str, Any]], Dict[str, Any], EnvToolCall]
+        self, tool_calls: Union[List[Dict[str, Any]], List[EnvToolCall], Dict[str, Any], EnvToolCall]
     ) -> EnvToolCall:
         """Validate and normalize tool calls."""
         # If already an EnvToolCall, validate and return
@@ -197,10 +197,26 @@ class MiniGridEnvironment(StatefulEnvironment, ReproducibleEnvironment[MiniGridE
             if isinstance(first_item, list) and len(first_item) > 0:
                 # Nested list
                 tool_call = first_item[0]
+            elif isinstance(first_item, EnvToolCall):
+                # Handle case where service sends list of EnvToolCall objects
+                if first_item.tool != "minigrid_act":
+                    raise ValueError(
+                        f"Unknown tool: {first_item.tool}. Expected 'minigrid_act'."
+                    )
+                return first_item
             else:
                 tool_call = first_item
         else:
             raise ValueError("Invalid tool_calls format")
+
+        # At this point tool_call should be a dict
+        if isinstance(tool_call, EnvToolCall):
+            # Handle case where we somehow still have an EnvToolCall
+            if tool_call.tool != "minigrid_act":
+                raise ValueError(
+                    f"Unknown tool: {tool_call.tool}. Expected 'minigrid_act'."
+                )
+            return tool_call
 
         # Extract tool name and args - fail fast
         if "tool" in tool_call:

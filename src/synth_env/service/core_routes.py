@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from synth_env.service.registry import get_environment_cls, list_supported_env_types
 from synth_env.stateful.core import StatefulEnvironment
+from synth_env.environment.tools import EnvToolCall
 
 # Try to import Redis for persistent storage
 try:
@@ -63,12 +64,24 @@ class MinimalImpetus:
     instructions: str
 
 
-def create_task_instance_for_environment(env_name: str, initial_state: Optional[Dict[str, Any]] = None) -> Any:
+def create_task_instance_for_environment(env_name: str, initial_state: Optional[Dict[str, Any]] = None, config: Optional[Dict[str, Any]] = None) -> Any:
     """Create appropriate task instance for different environments."""
     
     if env_name in ["Sokoban", "CrafterClassic", "MiniGrid", "TicTacToe"]:
         # These environments work with SimpleNamespace
-        return SimpleNamespace(initial_engine_snapshot=initial_state)
+        task = SimpleNamespace(initial_engine_snapshot=initial_state or {})
+        
+        # For MiniGrid, handle seed-based environment selection
+        if env_name == "MiniGrid" and config:
+            # Check if a seed is provided in config
+            if "seed" in config:
+                task.initial_engine_snapshot["seed"] = config["seed"]
+            
+            # Check if a specific environment is requested
+            if "env_name" in config:
+                task.initial_engine_snapshot["env_name"] = config["env_name"]
+        
+        return task
     
     elif env_name == "Verilog":
         # Verilog needs a snapshot_dir attribute
@@ -199,6 +212,9 @@ storage = InstanceStorage()
 
 def convert_numpy_types(obj):
     """Convert numpy types to native Python types for JSON serialization"""
+    import numpy as np
+    from dataclasses import is_dataclass
+    
     if isinstance(obj, dict):
         return {key: convert_numpy_types(value) for key, value in obj.items()}
     elif isinstance(obj, list):
@@ -213,9 +229,35 @@ def convert_numpy_types(obj):
         return obj.tolist()
     elif isinstance(obj, np.bool_):
         return bool(obj)
-    elif hasattr(obj, '__dict__'):
-        # Handle dataclasses and other objects with __dict__
-        return {key: convert_numpy_types(value) for key, value in obj.__dict__.items()}
+    elif is_dataclass(obj):
+        # Handle dataclasses safely - check if they have a to_dict method first
+        if hasattr(obj, 'to_dict'):
+            return obj.to_dict()
+        else:
+            # Fallback to converting __dict__ but exclude numpy arrays to prevent recursion
+            result = {}
+            for key, value in obj.__dict__.items():
+                if not isinstance(value, np.ndarray):
+                    result[key] = convert_numpy_types(value)
+                else:
+                    result[key] = value.tolist()  # Convert numpy arrays directly
+            return result
+    elif hasattr(obj, '__dict__') and not isinstance(obj, type):
+        # Handle other objects with __dict__ but be more cautious
+        try:
+            # Only process if it's likely to be a simple object
+            if len(obj.__dict__) < 50:  # Avoid overly complex objects
+                result = {}
+                for key, value in obj.__dict__.items():
+                    if not isinstance(value, np.ndarray):
+                        result[key] = convert_numpy_types(value)
+                    else:
+                        result[key] = value.tolist()
+                return result
+            else:
+                return str(obj)  # Fallback to string representation
+        except (RecursionError, AttributeError):
+            return str(obj)  # Safe fallback
     else:
         return obj
 
@@ -246,28 +288,57 @@ async def initialize_env(
     env_name: str, request: InitializeRequest = Body(...)
 ) -> Dict[str, Any]:
     """Initialize a new environment instance."""
+    import traceback
+    
     try:
+        print(f"🔍 Initializing {env_name} environment...")
+        
         cls = get_environment_cls(env_name)
+        print(f"✅ Got environment class: {cls}")
 
         # Create environment-specific task instance
-        task = create_task_instance_for_environment(env_name, request.initial_state)
+        task = create_task_instance_for_environment(env_name, request.initial_state, request.config)
+        print(f"✅ Created task instance: {type(task)}")
+        
+        # This is where recursion might happen for Sokoban
+        print(f"🔍 Creating environment instance...")
         env = cls(task)
+        print(f"✅ Created environment instance")
 
         # Generate unique environment ID
         env_id = str(uuid4())
+        print(f"✅ Generated env_id: {env_id}")
 
-        # Initialize and get first observation
+        # Initialize and get first observation - this might also cause recursion
+        print(f"🔍 Calling env.initialize()...")
         obs = await env.initialize()
+        print(f"✅ Environment initialized, observation type: {type(obs)}")
 
         # Store the fully initialized environment (fixes Redis initialization bug)
+        print(f"🔍 Storing environment...")
         await storage.store(env_id, env)
+        print(f"✅ Environment stored")
 
         # Convert numpy types to Python types for JSON serialization
+        print(f"🔍 Converting numpy types...")
         obs_serializable = convert_numpy_types(obs)
+        print(f"✅ Numpy types converted")
 
         return {"env_id": env_id, "observation": obs_serializable, "done": False, "info": {}}
+    
+    except RecursionError as e:
+        # Capture recursion errors specifically
+        stack_trace = traceback.format_exc()
+        print(f"❌ RECURSION ERROR in {env_name} initialization:")
+        print(stack_trace)
+        raise HTTPException(status_code=400, detail=f"Recursion error during {env_name} initialization: {str(e)}")
+    
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Capture all other errors
+        stack_trace = traceback.format_exc()
+        print(f"❌ ERROR in {env_name} initialization:")
+        print(stack_trace)
+        raise HTTPException(status_code=400, detail=f"Error during {env_name} initialization: {str(e)}")
 
 
 @api_router.post("/env/{env_name}/step")
@@ -329,9 +400,28 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
             file=sys.stderr,
         )
         # Extract tool calls from action
-        tool_calls = request.action.get("tool_calls", [])
+        raw_tool_calls = request.action.get("tool_calls", [])
         print(
-            f"🌐 ENVIRONMENTS SERVICE {request_id}: Extracted tool_calls = {tool_calls}",
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Extracted raw_tool_calls = {raw_tool_calls}",
+            file=sys.stderr,
+        )
+        
+        # Convert dictionaries to EnvToolCall objects
+        tool_calls = []
+        for call_dict in raw_tool_calls:
+            if isinstance(call_dict, dict):
+                # Convert dict to EnvToolCall object
+                tool_call = EnvToolCall(
+                    tool=call_dict.get("tool", ""),
+                    args=call_dict.get("args", {})
+                )
+                tool_calls.append(tool_call)
+            else:
+                # Already an EnvToolCall object
+                tool_calls.append(call_dict)
+        
+        print(
+            f"🌐 ENVIRONMENTS SERVICE {request_id}: Converted to EnvToolCall objects: {tool_calls}",
             file=sys.stderr,
         )
 
@@ -416,7 +506,7 @@ async def create_env_legacy(
 ) -> Dict[str, str]:
     """[DEPRECATED] Use /env/{env_name}/initialize instead."""
     cls = get_environment_cls(env_type)
-    task = create_task_instance_for_environment(env_type, initial_state)
+    task = create_task_instance_for_environment(env_type, initial_state, config)
     env = cls(task)
     instance_id = str(uuid4())
 
