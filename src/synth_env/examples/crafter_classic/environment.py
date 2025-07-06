@@ -150,48 +150,27 @@ class CrafterClassicEnvironment(
     # ────────────────────────────────────────────────────────────────────
 
     def validate_tool_calls(
-        self, tool_calls: Union[EnvToolCall, List[EnvToolCall], List[List[EnvToolCall]], List[Dict[str, Any]], Dict[str, Any]]
+        self, tool_calls: Union[EnvToolCall, List[EnvToolCall], List[List[EnvToolCall]]]
     ) -> EnvToolCall:
         # Normalize and validate to a single EnvToolCall (same as Sokoban)
-        raw_call_data: Dict[str, Any]
-        
         if isinstance(tool_calls, list):
             if not tool_calls:
                 raise ValueError("Received empty list of tool calls.")
-            first_item = tool_calls[0]
-            if isinstance(first_item, list):
-                if not first_item:
+            if isinstance(tool_calls[0], list):
+                if not tool_calls[0]:
                     raise ValueError("Received empty inner list of tool calls.")
-                raw_call_data = first_item[0]
-            elif isinstance(first_item, dict):
-                raw_call_data = first_item
-            elif isinstance(first_item, EnvToolCall):
-                agent_call = first_item
-                if agent_call.tool != "interact":
-                    raise ValueError(f"Unknown tool: {agent_call.tool}. Expected 'interact'.")
-                return agent_call
+                agent_call = tool_calls[0][0]
             else:
-                raise TypeError(f"Unexpected type in tool_calls list: {type(first_item)}")
-        elif isinstance(tool_calls, dict):
-            raw_call_data = tool_calls
+                agent_call = tool_calls[0]
         elif isinstance(tool_calls, EnvToolCall):
             agent_call = tool_calls
-            if agent_call.tool != "interact":
-                raise ValueError(f"Unknown tool: {agent_call.tool}. Expected 'interact'.")
-            return agent_call
         else:
             raise TypeError(f"Unexpected type for tool_calls: {type(tool_calls)}")
 
-        if not isinstance(raw_call_data, dict):
-            raise TypeError(f"Processed call data is not a dict: {type(raw_call_data)}")
-
-        # Convert dict to EnvToolCall instance (same as Sokoban)
-        tool_name = raw_call_data.get("tool")
-        tool_args = raw_call_data.get("args", {})
-        if tool_name != "interact":
-            raise ValueError(f"Unknown tool: {tool_name}. Expected 'interact'.")
-
-        agent_call = EnvToolCall(tool=tool_name, args=tool_args)
+        if not isinstance(agent_call, EnvToolCall):
+            raise TypeError(f"Processed call is not EnvToolCall: {type(agent_call)}")
+        if agent_call.tool != "interact":
+            raise ValueError(f"Unknown tool: {agent_call.tool}. Expected 'interact'.")
         return agent_call
 
     async def step(
