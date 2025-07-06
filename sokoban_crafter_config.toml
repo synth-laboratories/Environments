@@ -1,0 +1,191 @@
+# Focused Configuration: Sokoban & CrafterClassic Evaluation
+# Streamlined setup for comprehensive evaluation of spatial reasoning and survival gameplay
+
+[metadata]
+name = "Sokoban & CrafterClassic Benchmark"
+description = "Focused evaluation on puzzle-solving and open-world survival"
+version = "1.0"
+environments = ["Sokoban", "CrafterClassic"]
+
+[evaluation]
+service_url = "http://localhost:8001"
+save_detailed_logs = true
+track_achievement_progression = true
+
+# ============================================================================
+# Sokoban Configuration - Spatial Reasoning & Planning
+# ============================================================================
+
+[environments.Sokoban]
+description = "Box-pushing puzzles requiring spatial reasoning and planning"
+success_metric = "All boxes on target positions"
+
+[[environments.Sokoban.scenarios]]
+name = "tutorial"
+description = "Simple introduction - 4x4 room, 1 box"
+difficulty = "tutorial"
+room_size = [4, 4]
+num_boxes = 1
+max_steps = 25
+num_episodes = 5
+expected_success_rate = 0.8
+focus_skills = ["basic_movement", "simple_planning"]
+
+[[environments.Sokoban.scenarios]]
+name = "easy"
+description = "Basic puzzle - 5x5 room, 1 box"
+difficulty = "easy"
+room_size = [5, 5] 
+num_boxes = 1
+max_steps = 50
+num_episodes = 4
+expected_success_rate = 0.6
+focus_skills = ["spatial_reasoning", "goal_oriented_planning"]
+
+[[environments.Sokoban.scenarios]]
+name = "medium"
+description = "Intermediate challenge - 6x6 room, 2 boxes"
+difficulty = "medium"
+room_size = [6, 6]
+num_boxes = 2
+max_steps = 100
+num_episodes = 3
+expected_success_rate = 0.4
+focus_skills = ["multi_object_coordination", "backtracking", "complex_planning"]
+
+# Key achievements to track
+[environments.Sokoban.achievements]
+progress = ["started_moving", "placed_1_boxes", "halfway_complete"]
+efficiency = ["very_efficient", "efficient_solution"]
+completion = ["puzzle_solved"]
+persistence = ["persistent_effort"]
+
+# Metrics for analysis
+[environments.Sokoban.metrics]
+core = ["boxes_placed", "total_boxes", "placement_efficiency", "steps_taken"]
+efficiency = ["steps_per_box", "movement_efficiency"] 
+spatial = ["room_size", "completion_rate"]
+
+# ============================================================================
+# CrafterClassic Configuration - Survival & Resource Management  
+# ============================================================================
+
+[environments.CrafterClassic]
+description = "Open-world survival requiring resource management and exploration"
+success_metric = "Unlock target number of achievements"
+
+[[environments.CrafterClassic.scenarios]]
+name = "survival"
+description = "Basic survival - health maintenance and simple resources"
+target_achievements = 2
+max_steps = 200
+num_episodes = 4
+expected_success_rate = 0.7
+focus_skills = ["health_management", "basic_resource_gathering"]
+
+[[environments.CrafterClassic.scenarios]]
+name = "exploration" 
+description = "Resource gathering and world exploration"
+target_achievements = 4
+max_steps = 400
+num_episodes = 3
+expected_success_rate = 0.5
+focus_skills = ["exploration", "resource_diversity", "crafting_basics"]
+
+[[environments.CrafterClassic.scenarios]]
+name = "advanced"
+description = "Complex crafting chains and advanced survival"
+target_achievements = 6
+max_steps = 600
+num_episodes = 2
+expected_success_rate = 0.3
+focus_skills = ["advanced_crafting", "long_term_planning", "risk_management"]
+
+# Achievement categories
+[environments.CrafterClassic.achievements]
+survival = ["healthy_survivor", "excellent_health"]
+gathering = ["wood_gatherer", "stone_collector", "coal_finder", "good_collector", "master_collector"]
+crafting = ["collect_wood", "place_table", "make_wood_pickaxe", "collect_coal", "make_iron_pickaxe"]
+progression = ["collect_iron", "make_iron_sword", "defeat_skeleton", "collect_diamond"]
+
+# Comprehensive metrics
+[environments.CrafterClassic.metrics]
+achievements = ["achievements_unlocked", "total_possible_achievements", "achievement_rate"]
+survival = ["final_health", "exploration_efficiency"]
+resources = ["inventory_diversity", "total_items", "wood_collected", "stone_collected", "coal_collected", "iron_collected"]
+efficiency = ["avg_reward_per_step"]
+
+# ============================================================================
+# Agent Configuration
+# ============================================================================
+
+[agent]
+type = "SimpleReActAgent"
+model_name = "demo-sokoban-crafter-agent"
+strategy = "environment_adaptive"
+
+[agent.sokoban_strategy]
+approach = "systematic_movement"
+movement_pattern = ["right", "down", "left", "up"]
+adaptivity = "box_placement_aware"
+
+[agent.crafter_strategy]
+approach = "survival_first"
+priorities = ["health_maintenance", "resource_gathering", "crafting_progression"]
+exploration_style = "systematic"
+
+# ============================================================================
+# Analysis & Reporting
+# ============================================================================
+
+[analysis]
+# Cross-environment comparisons
+compare_spatial_vs_survival = true
+analyze_planning_efficiency = true
+track_learning_progression = true
+
+# Environment-specific analysis
+[analysis.sokoban]
+measure_planning_depth = true
+analyze_movement_patterns = true
+calculate_solution_optimality = true
+
+[analysis.crafter]
+track_resource_strategies = true
+analyze_exploration_patterns = true
+measure_survival_strategies = true
+
+[reporting]
+output_dir = "results/sokoban_crafter"
+generate_achievement_timeline = true
+create_efficiency_charts = true
+compare_difficulty_scaling = true
+
+# Summary statistics to highlight
+[reporting.highlights]
+success_rates_by_difficulty = true
+achievement_progression_speed = true
+efficiency_improvements = true
+cross_environment_skill_transfer = true
+
+# ============================================================================
+# Experimental Variations
+# ============================================================================
+
+[experiments]
+# Test different agent strategies
+[[experiments.agent_variants]]
+name = "systematic_sokoban"
+sokoban_strategy = "systematic_grid_search"
+crafter_strategy = "survival_first"
+
+[[experiments.agent_variants]]
+name = "aggressive_crafter"  
+sokoban_strategy = "standard"
+crafter_strategy = "exploration_first"
+
+# Difficulty progression analysis
+[experiments.difficulty_analysis]
+measure_success_rate_dropoff = true
+analyze_step_efficiency_scaling = true
+track_achievement_progression_rate = true 

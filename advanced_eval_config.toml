@@ -1,0 +1,384 @@
+# Advanced Standardized Evaluation Configuration
+# This demonstrates a comprehensive evaluation setup with multiple scenarios,
+# model comparisons, and detailed metrics tracking
+
+[metadata]
+name = "Comprehensive Agent Benchmark v2.0"
+description = "Multi-environment evaluation across difficulty levels with model comparison"
+version = "2.0"
+author = "Synth AI Team"
+created_date = "2025-01-27"
+
+# ============================================================================
+# Agent Configuration
+# ============================================================================
+
+[agent]
+type = "ReActAgent"
+default_model = "gemini-1.5-flash"
+temperature = 0.1
+max_tokens = 2000
+timeout_seconds = 30
+
+# Model comparison setup
+[agent.models_to_compare]
+gemini_flash = { model_name = "gemini-1.5-flash", temperature = 0.1 }
+gemini_pro = { model_name = "gemini-1.5-pro", temperature = 0.0 }
+gpt4_mini = { model_name = "gpt-4o-mini", temperature = 0.1 }
+claude_haiku = { model_name = "claude-3-haiku-20240307", temperature = 0.1 }
+
+# ============================================================================
+# Evaluation Configuration
+# ============================================================================
+
+[evaluation]
+# Global settings
+service_url = "http://localhost:8001"
+parallel_environments = 3
+parallel_episodes = 2
+save_intermediate_states = true
+save_conversation_logs = true
+generate_failure_analysis = true
+
+# Environment list for multi-env benchmarks
+primary_environments = ["Sokoban", "TicTacToe", "CrafterClassic", "NetHack", "MiniGrid"]
+secondary_environments = ["Verilog", "Enron"]  # More specialized environments
+
+# ============================================================================
+# Environment-Specific Configurations
+# ============================================================================
+
+[environments.Sokoban]
+description = "Box-pushing puzzle game requiring spatial reasoning"
+success_criteria = "All boxes placed on target positions"
+max_episode_length = 200
+
+# Multiple difficulty scenarios
+[[environments.Sokoban.scenarios]]
+name = "tutorial"
+description = "Simple 4x4 rooms with 1 box"
+difficulty = "tutorial"
+room_size = [4, 4]
+num_boxes = 1
+max_steps = 25
+num_episodes = 10
+expected_success_rate = 0.8
+
+[[environments.Sokoban.scenarios]]
+name = "easy"
+description = "5x5 rooms with 1-2 boxes"
+difficulty = "easy"
+room_size = [5, 5]
+num_boxes = 2
+max_steps = 50
+num_episodes = 15
+expected_success_rate = 0.6
+
+[[environments.Sokoban.scenarios]]
+name = "medium"
+description = "6x6 rooms with 2-3 boxes"
+difficulty = "medium"
+room_size = [6, 6]
+num_boxes = 3
+max_steps = 100
+num_episodes = 10
+expected_success_rate = 0.4
+
+[[environments.Sokoban.scenarios]]
+name = "hard"
+description = "7x7 rooms with 3-4 boxes, complex layouts"
+difficulty = "hard"
+room_size = [7, 7]
+num_boxes = 4
+max_steps = 200
+num_episodes = 5
+expected_success_rate = 0.2
+
+# Custom metrics for Sokoban
+[environments.Sokoban.metrics]
+track_box_movements = true
+track_player_position_history = true
+calculate_solution_optimality = true
+measure_planning_efficiency = true
+
+[environments.TicTacToe]
+description = "Classic 3x3 strategy game"
+success_criteria = "Win or draw against optimal opponent"
+max_episode_length = 9
+
+[[environments.TicTacToe.scenarios]]
+name = "standard"
+description = "Standard 3x3 TicTacToe"
+agent_plays_first = true
+opponent_strategy = "optimal"
+num_episodes = 50
+expected_success_rate = 0.5  # Against optimal play
+
+[[environments.TicTacToe.scenarios]]
+name = "disadvantage"
+description = "Agent plays second against optimal opponent"
+agent_plays_first = false
+opponent_strategy = "optimal"
+num_episodes = 30
+expected_success_rate = 0.3
+
+[environments.TicTacToe.metrics]
+track_opening_moves = true
+analyze_strategic_patterns = true
+measure_endgame_performance = true
+
+[environments.CrafterClassic]
+description = "Open-world survival and crafting game"
+success_criteria = "Unlock 5+ achievements within time limit"
+max_episode_length = 1000
+
+[[environments.CrafterClassic.scenarios]]
+name = "survival"
+description = "Focus on basic survival (health, food, shelter)"
+target_achievements = ["collect_wood", "place_table", "make_wood_pickaxe"]
+max_steps = 500
+num_episodes = 8
+expected_success_rate = 0.6
+
+[[environments.CrafterClassic.scenarios]]
+name = "exploration"
+description = "Explore world and gather diverse resources"
+target_achievements = ["collect_coal", "collect_iron", "make_iron_pickaxe"]
+max_steps = 800
+num_episodes = 5
+expected_success_rate = 0.4
+
+[[environments.CrafterClassic.scenarios]]
+name = "advanced_crafting"
+description = "Complex crafting chains and tool progression"
+target_achievements = ["make_iron_sword", "defeat_skeleton", "collect_diamond"]
+max_steps = 1000
+num_episodes = 3
+expected_success_rate = 0.2
+
+[environments.CrafterClassic.metrics]
+track_resource_collection = true
+measure_crafting_efficiency = true
+analyze_exploration_patterns = true
+calculate_survival_time = true
+
+[environments.NetHack]
+description = "Complex roguelike dungeon crawler"
+success_criteria = "Reach target depth while surviving"
+max_episode_length = 1000
+
+[[environments.NetHack.scenarios]]
+name = "beginner"
+description = "Tourist character, reach level 2"
+character_role = "tourist"
+target_depth = 2
+max_steps = 300
+num_episodes = 10
+expected_success_rate = 0.7
+
+[[environments.NetHack.scenarios]]
+name = "intermediate"
+description = "Tourist character, reach level 3"
+character_role = "tourist"
+target_depth = 3
+max_steps = 500
+num_episodes = 8
+expected_success_rate = 0.5
+
+[[environments.NetHack.scenarios]]
+name = "advanced"
+description = "Barbarian character, reach level 4"
+character_role = "barbarian"
+target_depth = 4
+max_steps = 800
+num_episodes = 5
+expected_success_rate = 0.3
+
+[environments.NetHack.metrics]
+track_combat_performance = true
+measure_inventory_management = true
+analyze_dungeon_navigation = true
+calculate_risk_assessment = true
+
+[environments.MiniGrid]
+description = "Grid-world navigation with objects and goals"
+success_criteria = "Reach goal position efficiently"
+max_episode_length = 200
+
+[[environments.MiniGrid.scenarios]]
+name = "empty"
+description = "Simple empty grid navigation"
+env_type = "Empty-8x8-v0"
+max_steps = 50
+num_episodes = 15
+expected_success_rate = 0.9
+
+[[environments.MiniGrid.scenarios]]
+name = "doorkey"
+description = "Navigate and use key to open door"
+env_type = "DoorKey-6x6-v0"
+max_steps = 100
+num_episodes = 10
+expected_success_rate = 0.7
+
+[[environments.MiniGrid.scenarios]]
+name = "unlock"
+description = "Complex multi-room navigation"
+env_type = "Unlock-v0"
+max_steps = 150
+num_episodes = 8
+expected_success_rate = 0.5
+
+[environments.MiniGrid.metrics]
+track_path_efficiency = true
+measure_object_interaction = true
+analyze_spatial_reasoning = true
+
+# ============================================================================
+# Specialized Environments (Optional)
+# ============================================================================
+
+[environments.Verilog]
+description = "Hardware design and verification"
+success_criteria = "Successful compilation and simulation"
+max_episode_length = 100
+
+[[environments.Verilog.scenarios]]
+name = "basic_logic"
+description = "Simple combinational logic circuits"
+circuit_type = "combinational"
+max_steps = 50
+num_episodes = 5
+expected_success_rate = 0.6
+
+[environments.Enron]
+description = "Email analysis and question answering"
+success_criteria = "Correct answer to email-based questions"
+max_episode_length = 50
+
+[[environments.Enron.scenarios]]
+name = "basic_search"
+description = "Simple email search and retrieval"
+question_difficulty = "easy"
+max_steps = 30
+num_episodes = 5
+expected_success_rate = 0.7
+
+# ============================================================================
+# Metrics and Analysis Configuration
+# ============================================================================
+
+[metrics]
+# Core metrics tracked across all environments
+track_success_rate = true
+track_average_reward = true
+track_episode_length = true
+track_step_efficiency = true
+
+# Advanced metrics
+track_intermediate_rewards = true
+track_achievement_progression = true
+track_error_patterns = true
+track_conversation_quality = true
+
+# Statistical analysis
+calculate_confidence_intervals = true
+perform_significance_testing = true
+generate_learning_curves = true
+
+[metrics.achievement_categories]
+# Define achievement categories for cross-environment analysis
+problem_solving = ["puzzle_solved", "goal_reached", "task_completed"]
+efficiency = ["efficient_solution", "optimal_path", "resource_efficient"]
+exploration = ["area_explored", "items_discovered", "depth_reached"]
+survival = ["survived", "health_maintained", "damage_avoided"]
+creativity = ["novel_solution", "creative_approach", "unexpected_strategy"]
+
+# ============================================================================
+# Reporting Configuration
+# ============================================================================
+
+[reporting]
+output_directory = "results/comprehensive_benchmark"
+generate_html_report = true
+generate_pdf_summary = true
+create_comparison_charts = true
+save_raw_data = true
+
+[reporting.charts]
+success_rate_by_environment = true
+reward_distribution = true
+episode_length_histogram = true
+achievement_progression = true
+model_comparison_radar = true
+difficulty_scaling = true
+
+[reporting.analysis]
+failure_mode_analysis = true
+improvement_suggestions = true
+environment_difficulty_ranking = true
+model_strength_weaknesses = true
+
+# ============================================================================
+# Experimental Configurations
+# ============================================================================
+
+[experiments]
+# A/B testing different prompting strategies
+[[experiments.prompting_strategies]]
+name = "standard_react"
+description = "Standard ReAct prompting"
+prompt_template = "react_standard"
+
+[[experiments.prompting_strategies]]
+name = "enhanced_react"
+description = "ReAct with environment-specific hints"
+prompt_template = "react_enhanced"
+
+[[experiments.prompting_strategies]]
+name = "chain_of_thought"
+description = "Chain of thought reasoning"
+prompt_template = "cot_standard"
+
+# Ablation studies
+[experiments.ablations]
+no_memory = { enable_memory = false }
+limited_context = { max_context_length = 1000 }
+no_examples = { include_examples = false }
+
+# ============================================================================
+# Execution Plans
+# ============================================================================
+
+# Quick smoke test
+[execution_plans.smoke_test]
+description = "Quick validation across all environments"
+environments = ["TicTacToe", "Sokoban"]
+scenarios_per_env = 1
+episodes_per_scenario = 3
+models = ["gemini-1.5-flash"]
+
+# Full benchmark
+[execution_plans.full_benchmark]
+description = "Complete evaluation across all scenarios"
+environments = ["Sokoban", "TicTacToe", "CrafterClassic", "NetHack", "MiniGrid"]
+scenarios_per_env = "all"
+models = ["gemini-1.5-flash", "gpt-4o-mini"]
+
+# Model comparison
+[execution_plans.model_comparison]
+description = "Compare multiple models on core environments"
+environments = ["Sokoban", "TicTacToe", "NetHack"]
+scenarios_per_env = ["easy", "medium"]
+models = ["gemini-1.5-flash", "gemini-1.5-pro", "gpt-4o-mini", "claude-3-haiku-20240307"]
+statistical_significance = true
+
+# Research evaluation
+[execution_plans.research_deep_dive]
+description = "Detailed analysis for research purposes"
+environments = ["Sokoban", "CrafterClassic"]
+scenarios_per_env = "all"
+models = ["gemini-1.5-flash"]
+enable_detailed_logging = true
+save_conversation_traces = true
+analyze_reasoning_patterns = true 

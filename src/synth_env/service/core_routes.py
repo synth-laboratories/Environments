@@ -8,6 +8,8 @@ import json
 import pickle
 import base64
 import numpy as np
+import tempfile
+from dataclasses import dataclass
 
 from synth_env.service.registry import get_environment_cls, list_supported_env_types
 from synth_env.stateful.core import StatefulEnvironment
@@ -31,6 +33,96 @@ api_router = APIRouter()
 
 # Fallback in-memory store if Redis is not available
 instances: Dict[str, StatefulEnvironment] = {}
+
+
+# Environment-specific task instance creation
+@dataclass
+class MinimalTaskInstanceMetadata:
+    """Minimal metadata for environments that need it."""
+    pass
+
+
+@dataclass
+class MinimalIntent:
+    """Minimal intent for environments that need it."""
+    rubric: Dict[str, Any]
+    gold_trajectories: Optional[Any] = None
+    gold_state_diff: Dict = None
+    deterministic_eval_functions: list = None
+
+    def __post_init__(self):
+        if self.gold_state_diff is None:
+            self.gold_state_diff = {}
+        if self.deterministic_eval_functions is None:
+            self.deterministic_eval_functions = []
+
+
+@dataclass
+class MinimalImpetus:
+    """Minimal impetus for environments that need it."""
+    instructions: str
+
+
+def create_task_instance_for_environment(env_name: str, initial_state: Optional[Dict[str, Any]] = None) -> Any:
+    """Create appropriate task instance for different environments."""
+    
+    if env_name in ["Sokoban", "CrafterClassic", "MiniGrid", "TicTacToe"]:
+        # These environments work with SimpleNamespace
+        return SimpleNamespace(initial_engine_snapshot=initial_state)
+    
+    elif env_name == "Verilog":
+        # Verilog needs a snapshot_dir attribute
+        # Create a temporary directory for the snapshot
+        temp_dir = tempfile.mkdtemp(prefix="verilog_task_")
+        task = SimpleNamespace(
+            initial_engine_snapshot=initial_state,
+            snapshot_dir=temp_dir,
+            metadata=MinimalTaskInstanceMetadata(),
+            id=uuid4()
+        )
+        return task
+    
+    elif env_name == "NetHack":
+        # NetHack needs proper TaskInstance structure with NetHackTaskInstanceMetadata
+        from synth_env.examples.nethack.taskset import NetHackTaskInstanceMetadata
+        
+        metadata = NetHackTaskInstanceMetadata(
+            character_role="tourist",  # Easy starting character
+            starting_level=1,
+            target_depth=3,
+            time_limit=1000,
+            difficulty="tutorial",
+            special_objectives=["Explore at least 3 different dungeon levels"],
+            seed=42
+        )
+        
+        task = SimpleNamespace(
+            initial_engine_snapshot=initial_state,
+            metadata=metadata,
+            id=uuid4(),
+            intent=MinimalIntent(rubric={"success": "reach target depth"}),
+            impetus=MinimalImpetus(instructions="Play NetHack and achieve the highest score."),
+            is_reproducible=False
+        )
+        return task
+    
+    elif env_name == "Enron":
+        # Enron needs task instance with email data
+        # For now, provide minimal structure
+        task = SimpleNamespace(
+            initial_engine_snapshot=initial_state,
+            metadata=MinimalTaskInstanceMetadata(),
+            id=uuid4(),
+            # Enron might need specific data structure
+            question=initial_state.get("question", "What information can you find?") if initial_state else "What information can you find?",
+            answer=initial_state.get("answer", "") if initial_state else "",
+            emails=initial_state.get("emails", []) if initial_state else []
+        )
+        return task
+    
+    else:
+        # Default: use SimpleNamespace for unknown environments
+        return SimpleNamespace(initial_engine_snapshot=initial_state)
 
 
 # Storage abstraction
@@ -121,6 +213,9 @@ def convert_numpy_types(obj):
         return obj.tolist()
     elif isinstance(obj, np.bool_):
         return bool(obj)
+    elif hasattr(obj, '__dict__'):
+        # Handle dataclasses and other objects with __dict__
+        return {key: convert_numpy_types(value) for key, value in obj.__dict__.items()}
     else:
         return obj
 
@@ -154,8 +249,8 @@ async def initialize_env(
     try:
         cls = get_environment_cls(env_name)
 
-        # Create a minimal task object carrying initial_engine_snapshot for snapshot-based environments
-        task = SimpleNamespace(initial_engine_snapshot=request.initial_state)
+        # Create environment-specific task instance
+        task = create_task_instance_for_environment(env_name, request.initial_state)
         env = cls(task)
 
         # Generate unique environment ID
@@ -321,7 +416,7 @@ async def create_env_legacy(
 ) -> Dict[str, str]:
     """[DEPRECATED] Use /env/{env_name}/initialize instead."""
     cls = get_environment_cls(env_type)
-    task = SimpleNamespace(initial_engine_snapshot=initial_state)
+    task = create_task_instance_for_environment(env_type, initial_state)
     env = cls(task)
     instance_id = str(uuid4())
 

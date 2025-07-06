@@ -4,7 +4,7 @@ import textwrap
 from typing import List, Optional
 from dataclasses import dataclass
 
-from .db.sqlite import SQLiteManager
+from synth_env.environment.db.sqlite import SQLiteManager
 from synth_env.examples.enron.art_helpers.types_enron import Email
 
 # Configure logger for this module
