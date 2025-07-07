@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Set
 
 import pytest
 
@@ -8,21 +9,19 @@ import pytest
 # Configuration
 # ---------------------------------------------------------------------------
 
-SLOW_THRESHOLD_SECONDS = 2.0  # anything longer is considered "slow"
+SLOW_THRESHOLD_SECONDS = 2.0  # Any test longer than this is considered "slow"
 DURATIONS_FILE = Path(__file__).parent / "test_durations.txt"
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-
-def _collect_slow_tests() -> set[str]:
-    """Return a set of nodeids that exceeded *SLOW_THRESHOLD_SECONDS*."""
-    slow: set[str] = set()
+def _collect_slow_tests() -> Set[str]:
+    """Return a set of test nodeids that exceeded SLOW_THRESHOLD_SECONDS."""
+    slow: Set[str] = set()
 
     if not DURATIONS_FILE.exists():
-        # No duration data yet – treat everything as normal.
-        return slow
+        return slow  # No duration data available
 
     for line in DURATIONS_FILE.read_text().splitlines():
         if "\t" not in line:
@@ -32,25 +31,22 @@ def _collect_slow_tests() -> set[str]:
             if float(seconds_str) > SLOW_THRESHOLD_SECONDS:
                 slow.add(nodeid.strip())
         except ValueError:
-            # Malformed line; ignore and continue
-            pass
+            continue  # Skip malformed line
 
     return slow
 
-
-_SLOW_TESTS: set[str] = _collect_slow_tests()
+_SLOW_TESTS: Set[str] = _collect_slow_tests()
 
 # ---------------------------------------------------------------------------
 # Pytest hook implementations
 # ---------------------------------------------------------------------------
-
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--slow",
         action="store_true",
         default=False,
-        help="Run tests marked as slow (>2 s).",
+        help="Run tests marked as slow (runtime > 2s).",
     )
     parser.addoption(
         "--fast",
@@ -59,34 +55,28 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Run only tests marked as fast (quick unit tests).",
     )
 
-
 def pytest_configure(config: pytest.Config) -> None:
-    # Register the marker so that pytest -m slow works and to silence warnings.
+    # Register custom markers to avoid warnings
     config.addinivalue_line("markers", "slow: tests that are slow (>2 s)")
     config.addinivalue_line("markers", "fast: tests that are fast (quick unit tests)")
 
-
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
-    # First, auto-mark the slow tests based on prior timing data.
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    # Auto-mark previously identified slow tests
     for item in items:
         if item.nodeid in _SLOW_TESTS:
             item.add_marker("slow")
 
-    # Handle --fast flag: only run tests marked as fast
+    # If --fast is passed, skip all non-fast tests
     if config.getoption("--fast"):
-        skip_marker = pytest.mark.skip(
-            reason="Skipped non-fast test (only running fast tests)"
-        )
+        skip_non_fast = pytest.mark.skip(reason="Skipped non-fast test (only running fast tests)")
         for item in items:
             if "fast" not in item.keywords:
-                item.add_marker(skip_marker)
-        return
+                item.add_marker(skip_non_fast)
+        return  # Nothing else to do
 
-    # Handle --slow flag: skip slow tests unless explicitly requested
+    # If --slow is not passed, skip all slow tests
     if not config.getoption("--slow"):
-        skip_marker = pytest.mark.skip(reason="Skipped slow test (pass --slow to run)")
+        skip_slow = pytest.mark.skip(reason="Skipped slow test (pass --slow to include)")
         for item in items:
             if "slow" in item.keywords:
-                item.add_marker(skip_marker)
+                item.add_marker(skip_slow)
