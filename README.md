@@ -41,6 +41,67 @@ while not env.done:
     state = env.step(action)
 ```
 
+### Running Evaluation Scripts
+
+The framework includes ReAct agent evaluation scripts for testing language models on various environments. These scripts provide comprehensive metrics and shaped rewards for training.
+
+#### Prerequisites
+1. Start the synth service on port 8901:
+   ```bash
+   # In your service directory
+   python -m uvicorn main:app --host 0.0.0.0 --port 8901
+   ```
+
+2. Ensure your model is available (OpenAI, Anthropic, etc.)
+
+#### TicTacToe Evaluation
+```bash
+cd Environments
+uvpm synth_env.examples.tictactoe.agent_demos.test_tictactoe_react_agent
+```
+
+**Features:**
+- Tests strategic gameplay against random opponent  
+- Provides win/loss/draw statistics
+- Validates coordinate parsing and legal moves
+- Supports multiple models (gpt-4.1-mini, o3, etc.)
+
+#### NetHack Evaluation  
+```bash
+cd Environments
+uvpm synth_env.examples.nethack.agent_demos.test_nethack_react_agent
+```
+
+**Features:**
+- Comprehensive dungeon exploration evaluation
+- 26+ shaped reward signals for training
+- Balrog scoring system integration
+- Progress bars for multi-trajectory runs
+- Separates relevant vs. irrelevant metrics
+
+#### Sokoban Evaluation
+```bash
+cd Environments  
+uvpm synth_env.examples.sokoban.agent_demos.test_sokoban_react_agent
+```
+
+**Features:**
+- Classic puzzle-solving evaluation
+- Box-pushing logic validation
+- Step efficiency analysis
+- Multiple difficulty levels
+
+#### Configuration
+Edit the script configuration at the top of each file:
+```python
+MODEL_NAME = "gpt-4.1-mini"  # or "o3", "claude-sonnet-4", etc.
+NUM_INSTANCES = 5            # Number of test episodes
+MAX_TURNS = 100             # Maximum steps per episode  
+DIFFICULTY = "beginner"     # Environment-specific difficulty
+```
+
+All scripts provide detailed rubric results, progress metrics, and shaped rewards suitable for reinforcement learning applications.
+
 ### Development Setup
 
 ```bash

@@ -7,7 +7,6 @@ Tests on multiple TicTacToe instances with random opponent moves
 import asyncio
 import json
 import uuid
-import random
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
@@ -24,8 +23,8 @@ from synth_ai.zyk.lms.tools.base import BaseTool
 
 # --- Service Configuration ---
 SERVICE_BASE_URL = "http://localhost:8901"
-MODEL_NAME = "gpt-4.1-mini"
-NUM_INSTANCES = 10
+MODEL_NAME = "o3"
+NUM_INSTANCES = 5
 MAX_TURNS = 9  # TicTacToe has at most 9 moves
 DIFFICULTY = "random"
 
@@ -128,11 +127,12 @@ class TicTacToeReActAgent(BaseReActAgent):
     def get_system_message(self) -> str:
         return """You are playing TicTacToe against a random opponent. Your goal is to win or at least force a draw.
 
-RULES:
+CRITICAL RULES:
 - You play on a 3x3 grid with cells labeled A1-A3, B1-B3, C1-C3
+- You MUST ONLY choose from cells listed as "Available" in the observation
+- NEVER choose cells listed as "Occupied" - this will cause an illegal move and immediate loss
 - Get three of your marks in a row (horizontally, vertically, or diagonally) to win
 - If no one gets three in a row and the board is full, it's a draw
-- You cannot place your mark on an occupied cell
 
 STRATEGY:
 1. Try to get three in a row to win
@@ -141,21 +141,75 @@ STRATEGY:
 4. Take corners if center is not available
 5. Avoid giving opponent easy wins
 
-BOARD LAYOUT:
+COORDINATE SYSTEM:
   1 2 3
 A . . .
 B . . .
 C . . .
 
-Your opponent plays randomly, so focus on creating winning opportunities while blocking obvious threats."""
+IMPORTANT: Always check the "Available" cells list in the observation and ONLY choose from those cells. Choosing an occupied cell will result in an illegal move and automatic loss."""
 
     def format_observation(self, obs: Dict[str, Any]) -> str:
-        """Format observation for TicTacToe."""
+        """Format observation for TicTacToe with enhanced clarity."""
         parts = []
         
         if "board_text" in obs:
             parts.append("Current Board:")
             parts.append(obs["board_text"])
+            
+            # Add explicit cell status for clarity  
+            board_lines = obs["board_text"].strip().split('\n')
+            if len(board_lines) >= 4:
+                parts.append("\nCell Status:")
+                occupied = []
+                available = []
+                
+                # Parse board more carefully - the display format is:
+                #   A B C
+                # 1 . . .  
+                # 2 . X .
+                # 3 . . .
+                # Where A,B,C are COLUMNS and 1,2,3 are ROWS
+                # But our coordinate system is A1-A3, B1-B3, C1-C3 where:
+                # - A,B,C are ROWS  
+                # - 1,2,3 are COLUMNS
+                
+                for i, line in enumerate(board_lines[1:4]):  # Skip header
+                    display_row = i + 1  # 1, 2, 3
+                    
+                    if len(line) >= 2:
+                        # Parse the line like "2 X X  " 
+                        cell_chars = line[2:] if len(line) > 2 else ""
+                        
+                        # The board format uses space separators: "A B C" where positions are:
+                        # Column A: position 0, space, Column B: position 2, space, Column C: position 4
+                        column_positions = [0, 2, 4]  # Positions of A, B, C columns
+                        
+                        # Extract characters from the 3 columns
+                        for col_idx in range(3):
+                            # Get the character at the correct position for this column
+                            pos = column_positions[col_idx]
+                            if pos < len(cell_chars):
+                                cell = cell_chars[pos]
+                            else:
+                                cell = ' '
+                            
+                            # Convert display coordinates to our coordinate system:
+                            # Display row 1 → our row A, Display row 2 → our row B, etc.
+                            # Display col A → our col 1, Display col B → our col 2, etc.
+                            our_row = ['A', 'B', 'C'][i]  # i is 0,1,2 → A,B,C
+                            our_col = col_idx + 1  # 0,1,2 → 1,2,3
+                            coord = f"{our_row}{our_col}"
+                            
+                            if cell.strip() in ['X', 'O']:
+                                occupied.append(f"{coord}={cell.strip()}")
+                            else:
+                                available.append(coord)
+                
+                if occupied:
+                    parts.append(f"  Occupied: {', '.join(occupied)}")
+                if available:
+                    parts.append(f"  Available: {', '.join(available)}")
         
         if "current_player" in obs:
             parts.append(f"\nCurrent Player: {obs['current_player']}")
@@ -178,27 +232,7 @@ Your opponent plays randomly, so focus on creating winning opportunities while b
         return "\n".join(parts)
 
 
-def make_random_opponent_move(board_text: str) -> str:
-    """Make a random move for the opponent by finding available cells."""
-    # Parse the board to find empty cells
-    lines = board_text.strip().split('\n')
-    available_cells = []
-    
-    if len(lines) >= 4:  # Should have header + 3 rows
-        for i, line in enumerate(lines[1:4]):  # Skip header row
-            if len(line.split()) >= 4:  # Should have row label + 3 cells
-                row_label = ['A', 'B', 'C'][i]
-                cells = line.split()[1:4]  # Skip row label
-                for j, cell in enumerate(cells):
-                    if cell == '.':  # Empty cell
-                        col_label = str(j + 1)
-                        available_cells.append(f"{row_label}{col_label}")
-    
-    if available_cells:
-        return random.choice(available_cells)
-    else:
-        # Fallback - try some common moves
-        return random.choice(["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"])
+# Random opponent moves are now handled by the TicTacToe environment internally
 
 
 # --- Episode Runner ---
@@ -224,77 +258,54 @@ async def run_single_episode(client: AsyncClient, agent: TicTacToeReActAgent, ta
         # DEBUG: Print initial state
         print(f"\n  Instance {instance_num}: Starting TicTacToe game")
         print(f"  Agent plays as: {task_instance.metadata.starting_player}")
+        print(f"  Opening moves: {task_instance.metadata.opening_moves}")
         print(f"  Initial observation:")
         print(f"    {formatted_obs}")
         
         # Track game state
         agent_player = task_instance.metadata.starting_player
-        opponent_player = "O" if agent_player == "X" else "X"
+        print(f"  DEBUG: agent_player = {agent_player}")
         
-        # Run episode
+        # Run episode - TicTacToe handles opponent moves automatically
         for turn in range(agent.max_turns):
-            current_player = obs.get("current_player", "X")
+            # Check if game is already terminated
+            if obs.get("terminated", False):
+                break
             
-            if current_player == agent_player:
-                # Agent's turn
-                action = await agent.decide(formatted_obs, agent.get_system_message(), turn)
-                
-                # DEBUG: Print agent decision
-                print(f"  Turn {turn+1}: Agent chose '{action['parameters']['action']}' - {action['parameters'].get('reasoning', 'no reasoning')}")
-                
-                # Check for termination
-                if action["name"] == "terminate":
-                    print(f"  Agent terminated: {action['parameters'].get('reason', 'no reason given')}")
-                    break
-                
-                # Execute action in environment
-                action_name = action["parameters"]["action"]
-                
-                step_resp = await client.post(
-                    f"/env/TicTacToe/step",
-                    json={
-                        "env_id": env_id,
-                        "request_id": str(uuid.uuid4()),
-                        "action": {
-                            "tool_calls": [{"tool": "interact", "args": {"action": action_name}}]
-                        }
-                    }
-                )
-                
-                if step_resp.status_code != 200:
-                    print(f"  ❌ Step failed: {step_resp.status_code}: {step_resp.text}")
-                    break
-                
-                obs = step_resp.json()["observation"]
-                formatted_obs = agent.format_observation(obs)
-                
-                # Update history
-                agent.history.append(f"{action_name}: {action['parameters'].get('reasoning', '')[:50]}")
+            # Agent makes a move
+            action = await agent.decide(formatted_obs, agent.get_system_message(), turn)
             
-            else:
-                # Opponent's turn (random move)
-                board_text = obs.get("board_text", "")
-                random_move = make_random_opponent_move(board_text)
-                
-                print(f"  Turn {turn+1}: Opponent (random) chose '{random_move}'")
-                
-                step_resp = await client.post(
-                    f"/env/TicTacToe/step",
-                    json={
-                        "env_id": env_id,
-                        "request_id": str(uuid.uuid4()),
-                        "action": {
-                            "tool_calls": [{"tool": "interact", "args": {"action": random_move}}]
-                        }
+            # DEBUG: Print agent decision
+            print(f"  Turn {turn+1}: Agent chose '{action['parameters']['action']}' - {action['parameters'].get('reasoning', 'no reasoning')}")
+            
+            # Check for termination
+            if action["name"] == "terminate":
+                print(f"  Agent terminated: {action['parameters'].get('reason', 'no reason given')}")
+                break
+            
+            # Execute action in environment
+            action_name = action["parameters"]["action"]
+            
+            step_resp = await client.post(
+                f"/env/TicTacToe/step",
+                json={
+                    "env_id": env_id,
+                    "request_id": str(uuid.uuid4()),
+                    "action": {
+                        "tool_calls": [{"tool": "interact", "args": {"action": action_name}}]
                     }
-                )
-                
-                if step_resp.status_code != 200:
-                    print(f"  ❌ Opponent step failed: {step_resp.status_code}: {step_resp.text}")
-                    break
-                
-                obs = step_resp.json()["observation"]
-                formatted_obs = agent.format_observation(obs)
+                }
+            )
+            
+            if step_resp.status_code != 200:
+                print(f"  ❌ Step failed: {step_resp.status_code}: {step_resp.text}")
+                break
+            
+            obs = step_resp.json()["observation"]
+            formatted_obs = agent.format_observation(obs)
+            
+            # Update history
+            agent.history.append(f"{action_name}: {action['parameters'].get('reasoning', '')[:50]}")
             
             # DEBUG: Print state after action
             print(f"  After move:")
@@ -305,6 +316,9 @@ async def run_single_episode(client: AsyncClient, agent: TicTacToeReActAgent, ta
             winner = obs.get("winner")
             
             if terminated:
+                # DEBUG: Print evaluation details
+                print(f"  DEBUG: Game ended - winner='{winner}', agent_player='{agent_player}', winner==agent_player={winner == agent_player}")
+                
                 # Calculate eval metric
                 eval_metric = 0.0
                 if winner == agent_player:

@@ -7,6 +7,7 @@ Tests on multiple easy Crafter instances with enhanced debugging
 import asyncio
 import json
 import uuid
+import math
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
@@ -27,6 +28,31 @@ MODEL_NAME = "gpt-4.1-mini"
 NUM_INSTANCES = 3
 MAX_TURNS = 20
 DIFFICULTY = "easy"
+
+# --- Shaped Reward Configuration ---
+# K-values for shaped reward calculation: reward = sum(K * log(count)) for each achievement
+ACHIEVEMENT_K_VALUES = {
+    "collect_wood": 1.0,
+    "collect_stone": 1.5,
+    "collect_coal": 2.0,
+    "collect_iron": 3.0,
+    "collect_diamond": 5.0,
+    "place_table": 1.5,
+    "place_furnace": 2.0,
+    "place_stone": 1.0,
+    "place_plant": 1.0,
+    "make_wood_pickaxe": 2.0,
+    "make_stone_pickaxe": 3.0,
+    "make_iron_pickaxe": 4.0,
+    "make_wood_sword": 2.0,
+    "make_stone_sword": 3.0,
+    "make_iron_sword": 4.0,
+    "defeat_skeleton": 4.0,
+    "defeat_zombie": 4.0,
+    "wake_up": 1.0,
+    "eat_cow": 1.0,
+    "eat_plant": 1.0,
+}
 
 
 # --- Tool Definitions ---
@@ -55,6 +81,30 @@ class TerminateTool(BaseTool):
     name: str = "terminate"
     arguments: type[BaseModel] = TerminateArgs
     description: str = "End the episode when finished or no progress can be made."
+
+
+# --- Shaped Reward Helper ---
+def calculate_shaped_reward(achievement_counts: Dict[str, int]) -> Dict[str, Any]:
+    """Calculate shaped reward using K * log(count) for each achievement."""
+    total_reward = 0.0
+    reward_breakdown = {}
+    
+    for achievement, count in achievement_counts.items():
+        if count > 0 and achievement in ACHIEVEMENT_K_VALUES:
+            k_value = ACHIEVEMENT_K_VALUES[achievement]
+            # Use log(count + 1) to handle count=0 case gracefully
+            reward_contribution = k_value * math.log(count + 1)
+            total_reward += reward_contribution
+            reward_breakdown[achievement] = {
+                "count": count,
+                "k_value": k_value,
+                "contribution": reward_contribution
+            }
+    
+    return {
+        "total_shaped_reward": total_reward,
+        "breakdown": reward_breakdown
+    }
 
 
 # --- Base ReAct Agent ---
@@ -433,10 +483,33 @@ async def evaluate_crafter_batch() -> Dict[str, Any]:
             values = [r["rubric"].get(key, 0.0) for r in valid_results]
             mean_rubric[key] = sum(values) / len(values)
         
+        # Calculate shaped reward (training rubric)
+        # Count total achievements across all episodes
+        achievement_counts = {}
+        for result in valid_results:
+            achievements = result.get("achievements", {})
+            for achievement, unlocked in achievements.items():
+                if unlocked:
+                    achievement_counts[achievement] = achievement_counts.get(achievement, 0) + 1
+        
+        # Calculate shaped reward using the counts
+        shaped_reward_data = calculate_shaped_reward(achievement_counts)
+        
+        # Create training rubric (normalized shaped reward components)
+        training_rubric = {}
+        total_episodes = len(valid_results)
+        if shaped_reward_data["breakdown"]:
+            for achievement, data in shaped_reward_data["breakdown"].items():
+                # Normalize by number of episodes for comparison
+                training_rubric[achievement] = data["contribution"] / total_episodes
+        
         return {
             "eval_metrics": eval_metrics,
             "mean_eval_metric": mean_eval_metric,
             "mean_rubric": mean_rubric,
+            "achievement_counts": achievement_counts,
+            "shaped_reward_data": shaped_reward_data,
+            "training_rubric": training_rubric,
             "num_episodes": len(valid_results)
         }
 
@@ -480,13 +553,37 @@ async def main():
         print(f"  Individual Scores: {[f'{x:.1f}' for x in results['eval_metrics']]}")
         print(f"  Mean Eval Metric: {results['mean_eval_metric']:.2f}")
         
-        # Print rubric results
-        print(f"\n🎯 RUBRIC RESULTS:")
+        # Print standard rubric results
+        print(f"\n🎯 STANDARD RUBRIC RESULTS:")
         if results['mean_rubric']:
             for achievement, score in sorted(results['mean_rubric'].items()):
                 print(f"  {achievement}: {score:.2f}")
         else:
             print("  No rubric data available")
+        
+        # Print shaped reward results
+        print(f"\n🏋️  TRAINING EVAL SCORE (SHAPED REWARD):")
+        shaped_data = results.get('shaped_reward_data', {})
+        print(f"  Total Shaped Reward: {shaped_data.get('total_shaped_reward', 0.0):.3f}")
+        
+        # Print achievement counts and contributions
+        achievement_counts = results.get('achievement_counts', {})
+        if achievement_counts:
+            print(f"\n  Achievement Counts Across All Episodes:")
+            for achievement, count in sorted(achievement_counts.items()):
+                k_value = ACHIEVEMENT_K_VALUES.get(achievement, 0.0)
+                contribution = k_value * math.log(count + 1) if count > 0 else 0.0
+                print(f"    {achievement}: {count} times (K={k_value:.1f}, contribution={contribution:.3f})")
+        else:
+            print("  No achievements unlocked")
+        
+        # Print training rubric (normalized contributions)
+        print(f"\n🎖️  TRAINING RUBRIC (PER EPISODE):")
+        if results.get('training_rubric'):
+            for achievement, score in sorted(results['training_rubric'].items()):
+                print(f"  {achievement}: {score:.3f}")
+        else:
+            print("  No training rubric data available")
             
         # Overall assessment
         print(f"\n🔍 ASSESSMENT:")
