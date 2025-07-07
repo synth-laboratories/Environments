@@ -45,7 +45,7 @@ class TerminateArgs(BaseModel):
 
 class NetHackActionTool(BaseTool):
     """Tool for performing actions in the NetHack environment."""
-    name: str = "nethack_interact"
+    name: str = "interact"
     arguments: type[BaseModel] = NetHackActionArgs
     description: str = "Perform 1-3 actions in sequence in the NetHack environment."
 
@@ -93,7 +93,7 @@ class BaseReActAgent:
             if self.verbose:
                 print(f"[WARNING] No tool calls returned by LLM, using default action")
             return {
-                "name": "nethack_interact",
+                "name": "interact",
                 "parameters": {
                     "actions": ["inventory"],
                     "reasoning": "Default action - no tool call received"
@@ -220,8 +220,8 @@ Remember: NetHack is complex but rewarding. Take your time and observe carefully
 
 
 # --- Episode Runner ---
-async def run_single_episode(client: AsyncClient, agent: NetHackReActAgent, task_instance, instance_num: int) -> bool:
-    """Run a single NetHack episode and return success status."""
+async def run_single_episode(client: AsyncClient, agent: NetHackReActAgent, task_instance, instance_num: int) -> Dict[str, Any]:
+    """Run a single NetHack episode and return episode metrics."""
     try:
         # Create environment using the task instance
         create_resp = await client.post(
@@ -231,7 +231,7 @@ async def run_single_episode(client: AsyncClient, agent: NetHackReActAgent, task
         
         if create_resp.status_code != 200:
             print(f"  Instance {instance_num}: Failed to create environment - {create_resp.status_code}: {create_resp.text}")
-            return False
+            return {"eval_metric": 0.0, "rubric": {}, "error": True}
         
         env_id = create_resp.json()["env_id"]
         
@@ -249,6 +249,8 @@ async def run_single_episode(client: AsyncClient, agent: NetHackReActAgent, task
         # Track progress
         initial_depth = 1
         max_depth_reached = initial_depth
+        max_reward = 0.0
+        final_stats = {}
         
         # Run episode
         for turn in range(agent.max_turns):
@@ -272,7 +274,7 @@ async def run_single_episode(client: AsyncClient, agent: NetHackReActAgent, task
                     "env_id": env_id,
                     "request_id": str(uuid.uuid4()),
                     "action": {
-                        "tool_calls": [{"tool": "nethack_interact", "args": {"actions": action_sequence}}]
+                        "tool_calls": [{"tool": "interact", "args": {"actions": action_sequence}}]
                     }
                 }
             )
@@ -290,47 +292,101 @@ async def run_single_episode(client: AsyncClient, agent: NetHackReActAgent, task
             # Update history
             agent.history.append(f"{', '.join(action_sequence)}: {action['parameters'].get('reasoning', '')[:50]}")
             
-            # Track depth progress
-            if "character_stats" in obs and "dungeon_level" in obs["character_stats"]:
-                current_depth = obs["character_stats"]["dungeon_level"]
-                max_depth_reached = max(max_depth_reached, current_depth)
+            # Track progress
+            if "character_stats" in obs:
+                final_stats = obs["character_stats"]
+                if "dungeon_level" in final_stats:
+                    current_depth = final_stats["dungeon_level"]
+                    max_depth_reached = max(max_depth_reached, current_depth)
+            
+            reward = obs.get("reward", 0.0)
+            max_reward = max(max_reward, reward)
             
             # Check if episode ended
             terminated = obs.get("terminated", False)
-            reward = obs.get("reward", 0.0)
             
             if terminated:
-                target_depth = task_instance.metadata.target_depth
-                success = max_depth_reached >= target_depth or reward > 10.0  # Either reached target or got significant reward
-                if success:
-                    print(f"  ✅ Instance {instance_num}: SUCCESS! Reached depth {max_depth_reached}, reward: {reward:.3f}")
-                else:
-                    print(f"  ❌ Instance {instance_num}: Terminated at depth {max_depth_reached} (target: {target_depth})")
-                await client.post(f"/env/NetHack/terminate", json={"env_id": env_id})
-                return success
-        
-        # Check final progress
-        target_depth = task_instance.metadata.target_depth
-        if max_depth_reached >= target_depth:
-            print(f"  ✅ Instance {instance_num}: SUCCESS! Reached target depth {max_depth_reached}")
-            await client.post(f"/env/NetHack/terminate", json={"env_id": env_id})
-            return True
-        else:
-            print(f"  ❌ Instance {instance_num}: Failed to reach target depth {target_depth} (reached {max_depth_reached})")
+                print(f"  📊 Instance {instance_num}: Episode ended at depth {max_depth_reached}, reward: {max_reward:.3f}")
+                break
         
         # Cleanup
         await client.post(f"/env/NetHack/terminate", json={"env_id": env_id})
-        return False
+        
+        # Calculate eval metric and rubric
+        target_depth = task_instance.metadata.target_depth
+        
+        # Balrog score: NetHack-style scoring system
+        # Base components from standard NetHack scoring
+        balrog_score = 0.0
+        
+        # Depth component: 50 * (depth - 1) points
+        depth_component = 50 * max(0, max_depth_reached - 1)
+        balrog_score += depth_component
+        
+        # Experience/level component: approximate from stats
+        if final_stats.get("experience", 0) > 0:
+            # 4 * XP approximation
+            balrog_score += 4 * final_stats.get("experience", 0)
+        
+        # Gold component: 1 point per zorkmid above starting
+        starting_gold = 100  # typical starting gold
+        current_gold = final_stats.get("gold", 0)
+        if current_gold > starting_gold:
+            balrog_score += (current_gold - starting_gold)
+        
+        # Bonus for deep exploration (1000 points per level beyond 20)
+        if max_depth_reached > 20:
+            deep_bonus = min(10000, 1000 * (max_depth_reached - 20))
+            balrog_score += deep_bonus
+        
+        # Reward component as bonus points
+        balrog_score += max_reward
+        
+        # Normalize to 0-1 range for eval metric (divide by typical good score)
+        # A score of 50,000+ is considered quite good
+        eval_metric = min(1.0, balrog_score / 50000.0)
+        
+        # Create rubric with specific achievements
+        rubric = {
+            "reached_target_depth": 1.0 if max_depth_reached >= target_depth else 0.0,
+            "depth_progress": min(1.0, max_depth_reached / target_depth),
+            "gained_experience": 1.0 if final_stats.get("experience", 0) > 0 else 0.0,
+            "collected_gold": 1.0 if final_stats.get("gold", 0) > starting_gold else 0.0,
+            "gained_levels": 1.0 if final_stats.get("level", 1) > 1 else 0.0,
+            "survived_turns": min(1.0, len(agent.history) / 20.0),  # Normalize to 20 turns
+            "positive_reward": 1.0 if max_reward > 0 else 0.0,
+            "balrog_score_component": min(1.0, balrog_score / 10000.0),  # Normalized score component
+        }
+        
+        # Success determination
+        success = max_depth_reached >= target_depth or max_reward > 10.0 or balrog_score > 5000
+        
+        if success:
+            print(f"  ✅ Instance {instance_num}: SUCCESS! Depth {max_depth_reached}, Balrog score: {balrog_score:.0f}")
+        else:
+            print(f"  ❌ Instance {instance_num}: Partial progress - depth {max_depth_reached}/{target_depth}, Balrog score: {balrog_score:.0f}")
+        
+        return {
+            "eval_metric": eval_metric,
+            "rubric": rubric,
+            "max_depth_reached": max_depth_reached,
+            "target_depth": target_depth,
+            "max_reward": max_reward,
+            "balrog_score": balrog_score,
+            "final_stats": final_stats,
+            "success": success,
+            "error": False
+        }
         
     except Exception as e:
         print(f"  Instance {instance_num}: Error - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return {"eval_metric": 0.0, "rubric": {}, "error": True}
 
 
 # --- Batch Evaluation ---
-async def evaluate_nethack_batch() -> float:
+async def evaluate_nethack_batch() -> Dict[str, Any]:
     """Evaluate NetHack agent on multiple easy instances."""
     print(f"🎯 Evaluating NetHack on {NUM_INSTANCES} {DIFFICULTY} instances...")
     
@@ -359,11 +415,44 @@ async def evaluate_nethack_batch() -> float:
             tasks.append(run_single_episode(client, agent, task_instance, i+1))
         
         results = await asyncio.gather(*tasks)
-        success_count = sum(results)
-        success_rate = success_count / len(task_instances)
         
-        print(f"  📊 NetHack Results: {success_count}/{len(task_instances)} solved ({success_rate:.1%})")
-        return success_rate
+        # Filter out error results
+        valid_results = [r for r in results if not r.get("error", False)]
+        
+        if not valid_results:
+            return {
+                "eval_metrics": [],
+                "mean_eval_metric": 0.0,
+                "mean_rubric": {},
+                "num_episodes": 0
+            }
+        
+        # Extract eval metrics and rubrics
+        eval_metrics = [r["eval_metric"] for r in valid_results]
+        mean_eval_metric = sum(eval_metrics) / len(eval_metrics)
+        
+        # Extract Balrog scores
+        balrog_scores = [r.get("balrog_score", 0.0) for r in valid_results]
+        mean_balrog_score = sum(balrog_scores) / len(balrog_scores) if balrog_scores else 0.0
+        
+        # Calculate mean rubric values
+        all_rubric_keys = set()
+        for r in valid_results:
+            all_rubric_keys.update(r["rubric"].keys())
+        
+        mean_rubric = {}
+        for key in all_rubric_keys:
+            values = [r["rubric"].get(key, 0.0) for r in valid_results]
+            mean_rubric[key] = sum(values) / len(values)
+        
+        return {
+            "eval_metrics": eval_metrics,
+            "mean_eval_metric": mean_eval_metric,
+            "balrog_scores": balrog_scores,
+            "mean_balrog_score": mean_balrog_score,
+            "mean_rubric": mean_rubric,
+            "num_episodes": len(valid_results)
+        }
 
 
 async def main():
@@ -394,21 +483,46 @@ async def main():
     
     # Run evaluation
     try:
-        success_rate = await evaluate_nethack_batch()
+        results = await evaluate_nethack_batch()
         
-        print("\n" + "=" * 50)
-        print("🏆 FINAL NETHACK RESULTS")
-        print("=" * 50)
-        print(f"Success Rate: {success_rate:.1%}")
+        print("\n" + "=" * 80)
+        print("🏆 FINAL NETHACK EVALUATION RESULTS")
+        print("=" * 80)
         
-        if success_rate > 0.5:
-            print("🎉 Excellent performance!")
-        elif success_rate > 0.3:
-            print("✅ Good performance!")
-        elif success_rate > 0.1:
-            print("⚠️  Moderate performance")
+        # Print eval metrics
+        print(f"📊 EVAL METRICS:")
+        print(f"  Episodes: {results['num_episodes']}")
+        print(f"  Individual Scores: {[f'{x:.2f}' for x in results['eval_metrics']]}")
+        print(f"  Mean Eval Metric: {results['mean_eval_metric']:.2f}")
+        
+        # Print Balrog scores
+        print(f"\n⚔️  BALROG SCORES:")
+        print(f"  Individual Scores: {[f'{x:.0f}' for x in results['balrog_scores']]}")
+        print(f"  Mean Balrog Score: {results['mean_balrog_score']:.0f}")
+        
+        # Print rubric results
+        print(f"\n🎯 RUBRIC RESULTS:")
+        if results['mean_rubric']:
+            for achievement, score in sorted(results['mean_rubric'].items()):
+                print(f"  {achievement}: {score:.2f}")
         else:
-            print("❌ Poor performance - NetHack is challenging!")
+            print("  No rubric data available")
+        
+        # Overall assessment
+        print(f"\n🔍 ASSESSMENT:")
+        balrog_score = results['mean_balrog_score']
+        eval_metric = results['mean_eval_metric']
+        
+        if eval_metric > 0.8 or balrog_score > 40000:
+            print("🎉 Excellent performance - mastering the dungeon!")
+        elif eval_metric > 0.6 or balrog_score > 20000:
+            print("✅ Good performance - making solid progress!")
+        elif eval_metric > 0.4 or balrog_score > 10000:
+            print("⚠️  Moderate performance - learning the ropes")
+        elif balrog_score > 5000:
+            print("📈 Decent exploration - building dungeon skills")
+        else:
+            print("🏃 Early exploration - focus on basic survival and movement")
             
     except Exception as e:
         print(f"❌ Evaluation failed: {e}")

@@ -23,7 +23,7 @@ from synth_ai.zyk.lms.tools.base import BaseTool
 
 # --- Service Configuration ---
 SERVICE_BASE_URL = "http://localhost:8901"
-MODEL_NAME = ""
+MODEL_NAME = "gpt-4.1-mini"
 NUM_INSTANCES = 10
 MAX_TURNS = 15
 DIFFICULTY = "ultra_easy"
@@ -173,8 +173,8 @@ Be concise and decisive. Always use the exact action names listed above."""
 
 
 # --- Episode Runner ---
-async def run_single_episode(client: AsyncClient, agent: SokobanReActAgent, config: Dict, instance_num: int) -> bool:
-    """Run a single Sokoban episode and return success status."""
+async def run_single_episode(client: AsyncClient, agent: SokobanReActAgent, config: Dict, instance_num: int) -> Dict[str, Any]:
+    """Run a single Sokoban episode and return episode metrics."""
     try:
         # Create environment
         create_resp = await client.post(
@@ -184,7 +184,7 @@ async def run_single_episode(client: AsyncClient, agent: SokobanReActAgent, conf
         
         if create_resp.status_code != 200:
             print(f"  Instance {instance_num}: Failed to create environment - {create_resp.status_code}: {create_resp.text}")
-            return False
+            return {"eval_metric": 0.0, "rubric": {}, "error": True}
         
         env_id = create_resp.json()["env_id"]
         
@@ -196,6 +196,10 @@ async def run_single_episode(client: AsyncClient, agent: SokobanReActAgent, conf
         print(f"\n  Instance {instance_num}: Starting puzzle")
         print(f"  Initial state:")
         print(f"  {formatted_obs}")
+        
+        # Track episode metrics
+        steps_taken = 0
+        max_steps = config.get("max_steps", 120)
         
         # Run episode
         for turn in range(agent.max_turns):
@@ -245,15 +249,42 @@ async def run_single_episode(client: AsyncClient, agent: SokobanReActAgent, conf
             # Update history
             agent.history.append(f"{action_name}: {action['parameters'].get('reasoning', '')[:50]}")
             
+            # Track steps
+            steps_taken = obs.get("steps_taken", steps_taken + 1)
+            
             # Check if game is won
             boxes_on_target = obs.get("boxes_on_target", 0)
             num_boxes = obs.get("num_boxes", 0)
             terminated = obs.get("terminated", False)
             
             if terminated and boxes_on_target == num_boxes:
-                print(f"  ✅ Instance {instance_num}: SUCCESS! All boxes on target in {turn+1} turns")
+                print(f"  ✅ Instance {instance_num}: SUCCESS! All boxes on target in {steps_taken} steps")
+                
+                # Calculate eval metric and rubric
+                eval_metric = 1.0
+                
+                # Create rubric - we'll estimate optimal solution as a fraction of max_steps
+                # This is a rough estimate since we don't have actual optimal solutions
+                estimated_optimal = max(num_boxes * 3, 10)  # Rough estimate
+                step_efficiency = min(1.0, estimated_optimal / max(steps_taken, 1))
+                
+                rubric = {
+                    "solved": 1.0,
+                    "step_efficiency": step_efficiency,
+                    "boxes_placed": float(boxes_on_target) / max(num_boxes, 1),
+                    "completed_in_time": 1.0 if steps_taken <= max_steps else 0.0,
+                }
+                
                 await client.post(f"/env/Sokoban/terminate", json={"env_id": env_id})
-                return True
+                return {
+                    "eval_metric": eval_metric,
+                    "rubric": rubric,
+                    "steps_taken": steps_taken,
+                    "boxes_on_target": boxes_on_target,
+                    "num_boxes": num_boxes,
+                    "solved": True,
+                    "error": False
+                }
             
             if terminated:
                 print(f"  ❌ Instance {instance_num}: Game terminated without success (boxes: {boxes_on_target}/{num_boxes})")
@@ -261,19 +292,36 @@ async def run_single_episode(client: AsyncClient, agent: SokobanReActAgent, conf
         
         print(f"  ❌ Instance {instance_num}: Failed to solve in {agent.max_turns} turns")
         
+        # Calculate eval metric and rubric for failed episode
+        eval_metric = 0.0
+        rubric = {
+            "solved": 0.0,
+            "step_efficiency": 0.0,
+            "boxes_placed": float(boxes_on_target) / max(num_boxes, 1),
+            "completed_in_time": 0.0,
+        }
+        
         # Cleanup
         await client.post(f"/env/Sokoban/terminate", json={"env_id": env_id})
-        return False
+        return {
+            "eval_metric": eval_metric,
+            "rubric": rubric,
+            "steps_taken": steps_taken,
+            "boxes_on_target": boxes_on_target,
+            "num_boxes": num_boxes,
+            "solved": False,
+            "error": False
+        }
         
     except Exception as e:
         print(f"  Instance {instance_num}: Error - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return {"eval_metric": 0.0, "rubric": {}, "error": True}
 
 
 # --- Batch Evaluation ---
-async def evaluate_sokoban_batch() -> float:
+async def evaluate_sokoban_batch() -> Dict[str, Any]:
     """Evaluate Sokoban agent on multiple easy instances."""
     print(f"🎯 Evaluating Sokoban on {NUM_INSTANCES} easy instances...")
     
@@ -338,19 +386,38 @@ async def evaluate_sokoban_batch() -> float:
             tasks.append(run_single_episode(client, agent, config, i+1))
         
         results = await asyncio.gather(*tasks)
-        success_count = sum(results)
-        success_rate = success_count / len(easy_task_instances)
         
-        print(f"  📊 Sokoban Results: {success_count}/{len(easy_task_instances)} solved ({success_rate:.1%})")
+        # Filter out error results
+        valid_results = [r for r in results if not r.get("error", False)]
         
-        # Print final debug info
-        print(f"\n  🔍 Final Task Debug Info:")
-        for i, info in enumerate(task_debug_info):
-            result = "✅ SOLVED" if results[i] else "❌ FAILED"
-            print(f"    Instance {i+1}: Seed={info['seed']}, ID={info['task_id']}, Result={result}")
-            print(f"      StateHash={info['room_state_hash']}, FixedHash={info['room_fixed_hash']}")
+        if not valid_results:
+            return {
+                "eval_metrics": [],
+                "mean_eval_metric": 0.0,
+                "mean_rubric": {},
+                "num_episodes": 0
+            }
         
-        return success_rate
+        # Extract eval metrics and rubrics
+        eval_metrics = [r["eval_metric"] for r in valid_results]
+        mean_eval_metric = sum(eval_metrics) / len(eval_metrics)
+        
+        # Calculate mean rubric values
+        all_rubric_keys = set()
+        for r in valid_results:
+            all_rubric_keys.update(r["rubric"].keys())
+        
+        mean_rubric = {}
+        for key in all_rubric_keys:
+            values = [r["rubric"].get(key, 0.0) for r in valid_results]
+            mean_rubric[key] = sum(values) / len(values)
+        
+        return {
+            "eval_metrics": eval_metrics,
+            "mean_eval_metric": mean_eval_metric,
+            "mean_rubric": mean_rubric,
+            "num_episodes": len(valid_results)
+        }
 
 
 async def main():
@@ -380,18 +447,33 @@ async def main():
     
     # Run evaluation
     try:
-        success_rate = await evaluate_sokoban_batch()
+        results = await evaluate_sokoban_batch()
         
-        print("\n" + "=" * 50)
-        print("🏆 FINAL SOKOBAN RESULTS")
-        print("=" * 50)
-        print(f"Success Rate: {success_rate:.1%}")
+        print("\n" + "=" * 80)
+        print("🏆 FINAL SOKOBAN EVALUATION RESULTS")
+        print("=" * 80)
         
-        if success_rate > 0.5:
+        # Print eval metrics
+        print(f"📊 EVAL METRICS:")
+        print(f"  Episodes: {results['num_episodes']}")
+        print(f"  Individual Scores: {[f'{x:.1f}' for x in results['eval_metrics']]}")
+        print(f"  Mean Eval Metric: {results['mean_eval_metric']:.2f}")
+        
+        # Print rubric results
+        print(f"\n🎯 RUBRIC RESULTS:")
+        if results['mean_rubric']:
+            for metric, score in sorted(results['mean_rubric'].items()):
+                print(f"  {metric}: {score:.2f}")
+        else:
+            print("  No rubric data available")
+        
+        # Overall assessment
+        print(f"\n🔍 ASSESSMENT:")
+        if results['mean_eval_metric'] > 0.5:
             print("🎉 Excellent performance!")
-        elif success_rate > 0.3:
+        elif results['mean_eval_metric'] > 0.3:
             print("✅ Good performance!")
-        elif success_rate > 0.1:
+        elif results['mean_eval_metric'] > 0.1:
             print("⚠️  Moderate performance")
         else:
             print("❌ Poor performance - needs improvement")

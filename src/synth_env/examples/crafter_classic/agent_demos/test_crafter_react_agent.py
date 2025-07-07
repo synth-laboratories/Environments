@@ -45,7 +45,7 @@ class TerminateArgs(BaseModel):
 
 class CrafterActionTool(BaseTool):
     """Tool for performing actions in the Crafter environment."""
-    name: str = "crafter_interact"
+    name: str = "interact"
     arguments: type[BaseModel] = CrafterActionArgs
     description: str = "Perform 1-5 actions in sequence in the Crafter environment."
 
@@ -93,7 +93,7 @@ class BaseReActAgent:
             if self.verbose:
                 print(f"[WARNING] No tool calls returned by LLM, using default action")
             return {
-                "name": "crafter_interact",
+                "name": "interact",
                 "parameters": {
                     "actions": ["do"],
                     "reasoning": "Default action - no tool call received"
@@ -191,8 +191,8 @@ Be strategic about resource gathering and crafting. Use 'do' to interact with ob
 
 
 # --- Episode Runner ---
-async def run_single_episode(client: AsyncClient, agent: CrafterReActAgent, task_instance, instance_num: int) -> bool:
-    """Run a single Crafter episode and return success status."""
+async def run_single_episode(client: AsyncClient, agent: CrafterReActAgent, task_instance, instance_num: int) -> Dict[str, Any]:
+    """Run a single Crafter episode and return episode metrics."""
     try:
         # Create environment using the task instance
         create_resp = await client.post(
@@ -202,7 +202,14 @@ async def run_single_episode(client: AsyncClient, agent: CrafterReActAgent, task
         
         if create_resp.status_code != 200:
             print(f"  Instance {instance_num}: Failed to create environment - {create_resp.status_code}: {create_resp.text}")
-            return False
+            return {
+                "eval_metric": 0.0, 
+                "rubric": {}, 
+                "total_reward": 0.0, 
+                "num_achievements": 0, 
+                "terminated": False, 
+                "error": True
+            }
         
         env_id = create_resp.json()["env_id"]
         
@@ -215,6 +222,11 @@ async def run_single_episode(client: AsyncClient, agent: CrafterReActAgent, task
         print(f"  Environment: {task_instance.metadata.difficulty}")
         print(f"  Initial observation:")
         print(f"    {formatted_obs}")
+        
+        # Track episode metrics
+        total_reward = 0.0
+        final_achievements = {}
+        num_achievements = 0
         
         # Run episode
         for turn in range(agent.max_turns):
@@ -245,7 +257,7 @@ async def run_single_episode(client: AsyncClient, agent: CrafterReActAgent, task
                     "env_id": env_id,
                     "request_id": str(uuid.uuid4()),
                     "action": {
-                        "tool_calls": [{"tool": "crafter_interact", "args": {"actions": action_ints}}]
+                        "tool_calls": [{"tool": "interact", "args": {"actions": action_ints}}]
                     }
                 }
             )
@@ -263,36 +275,97 @@ async def run_single_episode(client: AsyncClient, agent: CrafterReActAgent, task
             # Update history
             agent.history.append(f"{', '.join(action_sequence)}: {action['parameters'].get('reasoning', '')[:50]}")
             
-            # Check if episode ended
+            # Track episode progress
             terminated = obs.get("terminated", False)
-            reward = obs.get("reward", 0.0)
+            step_reward = obs.get("reward", 0.0)
+            total_reward += step_reward
             achievements = obs.get("achievements", {})
-            num_achievements = sum(1 for v in achievements.values() if v)
+            if achievements:
+                final_achievements = achievements
+            num_achievements = sum(1 for v in achievements.values() if v) if achievements else 0
             
             if terminated:
-                success = num_achievements > 0 or reward > 0
-                if success:
-                    print(f"  ✅ Instance {instance_num}: SUCCESS! Achieved {num_achievements} achievements, reward: {reward:.3f}")
-                else:
-                    print(f"  ❌ Instance {instance_num}: Terminated without significant progress")
-                await client.post(f"/env/CrafterClassic/terminate", json={"env_id": env_id})
-                return success
-        
-        print(f"  ❌ Instance {instance_num}: Failed to complete in {agent.max_turns} turns")
+                print(f"  ✅ Instance {instance_num}: Episode completed! Achievements: {num_achievements}, Total reward: {total_reward:.3f}")
+                break
         
         # Cleanup
         await client.post(f"/env/CrafterClassic/terminate", json={"env_id": env_id})
-        return False
+        
+        # Calculate eval metric and rubric
+        eval_metric = float(num_achievements)  # Simple metric: number of achievements
+        
+        # Create rubric with specific achievement checks
+        rubric = {}
+        if final_achievements:
+            rubric = {
+                "collect_wood": 1.0 if final_achievements.get("collect_wood", False) else 0.0,
+                "collect_stone": 1.0 if final_achievements.get("collect_stone", False) else 0.0,
+                "collect_coal": 1.0 if final_achievements.get("collect_coal", False) else 0.0,
+                "collect_iron": 1.0 if final_achievements.get("collect_iron", False) else 0.0,
+                "collect_diamond": 1.0 if final_achievements.get("collect_diamond", False) else 0.0,
+                "place_table": 1.0 if final_achievements.get("place_table", False) else 0.0,
+                "place_furnace": 1.0 if final_achievements.get("place_furnace", False) else 0.0,
+                "make_wood_pickaxe": 1.0 if final_achievements.get("make_wood_pickaxe", False) else 0.0,
+                "make_stone_pickaxe": 1.0 if final_achievements.get("make_stone_pickaxe", False) else 0.0,
+                "make_iron_pickaxe": 1.0 if final_achievements.get("make_iron_pickaxe", False) else 0.0,
+                "make_wood_sword": 1.0 if final_achievements.get("make_wood_sword", False) else 0.0,
+                "make_stone_sword": 1.0 if final_achievements.get("make_stone_sword", False) else 0.0,
+                "make_iron_sword": 1.0 if final_achievements.get("make_iron_sword", False) else 0.0,
+                "defeat_skeleton": 1.0 if final_achievements.get("defeat_skeleton", False) else 0.0,
+                "defeat_zombie": 1.0 if final_achievements.get("defeat_zombie", False) else 0.0,
+                "wake_up": 1.0 if final_achievements.get("wake_up", False) else 0.0,
+                "eat_cow": 1.0 if final_achievements.get("eat_cow", False) else 0.0,
+                "eat_plant": 1.0 if final_achievements.get("eat_plant", False) else 0.0,
+            }
+        else:
+            # Default rubric with all zeros
+            rubric = {
+                "collect_wood": 0.0,
+                "collect_stone": 0.0,
+                "collect_coal": 0.0,
+                "collect_iron": 0.0,
+                "collect_diamond": 0.0,
+                "place_table": 0.0,
+                "place_furnace": 0.0,
+                "make_wood_pickaxe": 0.0,
+                "make_stone_pickaxe": 0.0,
+                "make_iron_pickaxe": 0.0,
+                "make_wood_sword": 0.0,
+                "make_stone_sword": 0.0,
+                "make_iron_sword": 0.0,
+                "defeat_skeleton": 0.0,
+                "defeat_zombie": 0.0,
+                "wake_up": 0.0,
+                "eat_cow": 0.0,
+                "eat_plant": 0.0,
+            }
+        
+        return {
+            "eval_metric": eval_metric,
+            "rubric": rubric,
+            "total_reward": total_reward, 
+            "num_achievements": num_achievements, 
+            "achievements": final_achievements,
+            "terminated": terminated, 
+            "error": False
+        }
         
     except Exception as e:
         print(f"  Instance {instance_num}: Error - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return {
+            "eval_metric": 0.0,
+            "rubric": {},
+            "total_reward": 0.0, 
+            "num_achievements": 0, 
+            "terminated": False, 
+            "error": True
+        }
 
 
 # --- Batch Evaluation ---
-async def evaluate_crafter_batch() -> float:
+async def evaluate_crafter_batch() -> Dict[str, Any]:
     """Evaluate Crafter agent on multiple easy instances."""
     print(f"🎯 Evaluating Crafter on {NUM_INSTANCES} easy instances...")
     
@@ -334,11 +407,38 @@ async def evaluate_crafter_batch() -> float:
             tasks.append(run_single_episode(client, agent, task_instance, i+1))
         
         results = await asyncio.gather(*tasks)
-        success_count = sum(results)
-        success_rate = success_count / len(easy_task_instances)
         
-        print(f"  📊 Crafter Results: {success_count}/{len(easy_task_instances)} solved ({success_rate:.1%})")
-        return success_rate
+        # Filter out error results
+        valid_results = [r for r in results if not r.get("error", False)]
+        
+        if not valid_results:
+            return {
+                "eval_metrics": [],
+                "mean_eval_metric": 0.0,
+                "mean_rubric": {},
+                "num_episodes": 0
+            }
+        
+        # Extract eval metrics and rubrics
+        eval_metrics = [r["eval_metric"] for r in valid_results]
+        mean_eval_metric = sum(eval_metrics) / len(eval_metrics)
+        
+        # Calculate mean rubric values
+        all_rubric_keys = set()
+        for r in valid_results:
+            all_rubric_keys.update(r["rubric"].keys())
+        
+        mean_rubric = {}
+        for key in all_rubric_keys:
+            values = [r["rubric"].get(key, 0.0) for r in valid_results]
+            mean_rubric[key] = sum(values) / len(values)
+        
+        return {
+            "eval_metrics": eval_metrics,
+            "mean_eval_metric": mean_eval_metric,
+            "mean_rubric": mean_rubric,
+            "num_episodes": len(valid_results)
+        }
 
 
 async def main():
@@ -368,21 +468,36 @@ async def main():
     
     # Run evaluation
     try:
-        success_rate = await evaluate_crafter_batch()
+        results = await evaluate_crafter_batch()
         
-        print("\n" + "=" * 50)
-        print("🏆 FINAL CRAFTER RESULTS")
-        print("=" * 50)
-        print(f"Success Rate: {success_rate:.1%}")
+        print("\n" + "=" * 80)
+        print("🏆 FINAL CRAFTER EVALUATION RESULTS")
+        print("=" * 80)
         
-        if success_rate > 0.5:
-            print("🎉 Excellent performance!")
-        elif success_rate > 0.3:
-            print("✅ Good performance!")
-        elif success_rate > 0.1:
-            print("⚠️  Moderate performance")
+        # Print eval metrics
+        print(f"📊 EVAL METRICS:")
+        print(f"  Episodes: {results['num_episodes']}")
+        print(f"  Individual Scores: {[f'{x:.1f}' for x in results['eval_metrics']]}")
+        print(f"  Mean Eval Metric: {results['mean_eval_metric']:.2f}")
+        
+        # Print rubric results
+        print(f"\n🎯 RUBRIC RESULTS:")
+        if results['mean_rubric']:
+            for achievement, score in sorted(results['mean_rubric'].items()):
+                print(f"  {achievement}: {score:.2f}")
         else:
-            print("❌ Poor performance - needs improvement")
+            print("  No rubric data available")
+            
+        # Overall assessment
+        print(f"\n🔍 ASSESSMENT:")
+        if results['mean_eval_metric'] >= 3.0:
+            print("🎉 Excellent performance - achieving multiple objectives!")
+        elif results['mean_eval_metric'] >= 1.0:
+            print("✅ Good performance - consistently achieving objectives!")
+        elif results['mean_eval_metric'] >= 0.5:
+            print("⚠️  Moderate performance - some achievements unlocked")
+        else:
+            print("📈 Learning phase - focus on basic survival and resource gathering")
             
     except Exception as e:
         print(f"❌ Evaluation failed: {e}")

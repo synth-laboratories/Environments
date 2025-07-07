@@ -37,3 +37,7 @@ The Gemini 2.0 Flash model does not consistently return tool calls when using th
 
 **Description**:
 The turn progress display shows "Turn X/15" instead of "Turn X/30" even when max_turns is configured to 30 in eval_config.toml. The actual evaluation runs for the correct number of turns, this is purely a display issue. 
+
+
+
+MINIGRID environment does not have proper rending / validation for e.g. yellow doors and such

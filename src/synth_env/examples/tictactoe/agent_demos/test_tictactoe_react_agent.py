@@ -202,8 +202,8 @@ def make_random_opponent_move(board_text: str) -> str:
 
 
 # --- Episode Runner ---
-async def run_single_episode(client: AsyncClient, agent: TicTacToeReActAgent, task_instance, instance_num: int) -> bool:
-    """Run a single TicTacToe episode and return success status."""
+async def run_single_episode(client: AsyncClient, agent: TicTacToeReActAgent, task_instance, instance_num: int) -> Dict[str, Any]:
+    """Run a single TicTacToe episode and return episode metrics."""
     try:
         # Create environment using the task instance
         create_resp = await client.post(
@@ -213,7 +213,7 @@ async def run_single_episode(client: AsyncClient, agent: TicTacToeReActAgent, ta
         
         if create_resp.status_code != 200:
             print(f"  Instance {instance_num}: Failed to create environment - {create_resp.status_code}: {create_resp.text}")
-            return False
+            return {"eval_metric": 0.0, "rubric": {}, "error": True}
         
         env_id = create_resp.json()["env_id"]
         
@@ -305,34 +305,42 @@ async def run_single_episode(client: AsyncClient, agent: TicTacToeReActAgent, ta
             winner = obs.get("winner")
             
             if terminated:
+                # Calculate eval metric
+                eval_metric = 0.0
                 if winner == agent_player:
+                    eval_metric = 1.0
                     print(f"  ✅ Instance {instance_num}: SUCCESS! Agent won as {agent_player}")
-                    await client.post(f"/env/TicTacToe/terminate", json={"env_id": env_id})
-                    return True
                 elif winner == "draw":
+                    eval_metric = 0.5
                     print(f"  ⚪ Instance {instance_num}: DRAW - acceptable result")
-                    await client.post(f"/env/TicTacToe/terminate", json={"env_id": env_id})
-                    return True  # Draw is acceptable
                 else:
+                    eval_metric = 0.0
                     print(f"  ❌ Instance {instance_num}: Agent lost to random opponent")
-                    await client.post(f"/env/TicTacToe/terminate", json={"env_id": env_id})
-                    return False
+                
+                await client.post(f"/env/TicTacToe/terminate", json={"env_id": env_id})
+                return {
+                    "eval_metric": eval_metric,
+                    "rubric": {},  # No rubric for TicTacToe
+                    "result": winner,
+                    "agent_player": agent_player,
+                    "error": False
+                }
         
         print(f"  ❌ Instance {instance_num}: Game didn't finish in {agent.max_turns} turns")
         
         # Cleanup
         await client.post(f"/env/TicTacToe/terminate", json={"env_id": env_id})
-        return False
+        return {"eval_metric": 0.0, "rubric": {}, "error": False}
         
     except Exception as e:
         print(f"  Instance {instance_num}: Error - {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return {"eval_metric": 0.0, "rubric": {}, "error": True}
 
 
 # --- Batch Evaluation ---
-async def evaluate_tictactoe_batch() -> float:
+async def evaluate_tictactoe_batch() -> Dict[str, Any]:
     """Evaluate TicTacToe agent on multiple instances."""
     print(f"🎯 Evaluating TicTacToe on {NUM_INSTANCES} instances with random opponent...")
     
@@ -353,11 +361,28 @@ async def evaluate_tictactoe_batch() -> float:
             tasks.append(run_single_episode(client, agent, task_instance, i+1))
         
         results = await asyncio.gather(*tasks)
-        success_count = sum(results)
-        success_rate = success_count / len(task_instances)
         
-        print(f"  📊 TicTacToe Results: {success_count}/{len(task_instances)} won/drew ({success_rate:.1%})")
-        return success_rate
+        # Filter out error results
+        valid_results = [r for r in results if not r.get("error", False)]
+        
+        if not valid_results:
+            return {
+                "eval_metrics": [],
+                "mean_eval_metric": 0.0,
+                "mean_rubric": {},
+                "num_episodes": 0
+            }
+        
+        # Extract eval metrics (no rubric for TicTacToe)
+        eval_metrics = [r["eval_metric"] for r in valid_results]
+        mean_eval_metric = sum(eval_metrics) / len(eval_metrics)
+        
+        return {
+            "eval_metrics": eval_metrics,
+            "mean_eval_metric": mean_eval_metric,
+            "mean_rubric": {},  # No rubric for TicTacToe
+            "num_episodes": len(valid_results)
+        }
 
 
 async def main():
@@ -387,18 +412,29 @@ async def main():
     
     # Run evaluation
     try:
-        success_rate = await evaluate_tictactoe_batch()
+        results = await evaluate_tictactoe_batch()
         
-        print("\n" + "=" * 50)
-        print("🏆 FINAL TICTACTOE RESULTS")
-        print("=" * 50)
-        print(f"Success Rate (Win/Draw): {success_rate:.1%}")
+        print("\n" + "=" * 80)
+        print("🏆 FINAL TICTACTOE EVALUATION RESULTS")
+        print("=" * 80)
         
-        if success_rate > 0.8:
+        # Print eval metrics
+        print(f"📊 EVAL METRICS:")
+        print(f"  Episodes: {results['num_episodes']}")
+        print(f"  Individual Scores: {[f'{x:.1f}' for x in results['eval_metrics']]}")
+        print(f"  Mean Eval Metric: {results['mean_eval_metric']:.2f}")
+        
+        # Print rubric results (none for TicTacToe)
+        print(f"\n🎯 RUBRIC RESULTS:")
+        print("  No rubric for TicTacToe")
+        
+        # Overall assessment
+        print(f"\n🔍 ASSESSMENT:")
+        if results['mean_eval_metric'] > 0.8:
             print("🎉 Excellent performance against random opponent!")
-        elif success_rate > 0.6:
+        elif results['mean_eval_metric'] > 0.6:
             print("✅ Good performance!")
-        elif success_rate > 0.4:
+        elif results['mean_eval_metric'] > 0.4:
             print("⚠️  Moderate performance")
         else:
             print("❌ Poor performance - struggling against random moves")
