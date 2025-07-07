@@ -138,6 +138,183 @@ def create_task_instance_for_environment(env_name: str, initial_state: Optional[
         return SimpleNamespace(initial_engine_snapshot=initial_state)
 
 
+async def reconstruct_task_instance_from_serialized(env_name: str, serialized_data: Dict[str, Any]) -> Any:
+    """Reconstruct a task instance from serialized data for specific environment types."""
+    
+    if env_name == "MiniGrid":
+        # MiniGrid has its own TaskInstance class with deserialize method
+        from synth_env.examples.minigrid.taskset import MiniGridTaskInstance
+        return await MiniGridTaskInstance.deserialize(serialized_data)
+    
+    elif env_name == "Sokoban":
+        # Sokoban has its own TaskInstance class with deserialize method
+        from synth_env.examples.sokoban.taskset import SokobanTaskInstance
+        return await SokobanTaskInstance.deserialize(serialized_data)
+    
+    elif env_name in ["CrafterClassic", "TicTacToe"]:
+        # These environments work with SimpleNamespace - convert serialized data back to SimpleNamespace
+        from types import SimpleNamespace
+        from uuid import UUID
+        
+        task = SimpleNamespace()
+        task.id = UUID(serialized_data.get("id", str(uuid4())))
+        task.initial_engine_snapshot = serialized_data.get("initial_engine_snapshot", {})
+        task.metadata = SimpleNamespace(**serialized_data.get("metadata", {}))
+        
+        # Handle impetus
+        impetus_data = serialized_data.get("impetus", {})
+        if impetus_data:
+            task.impetus = SimpleNamespace(instructions=impetus_data.get("instructions", ""))
+        
+        # Handle intent
+        intent_data = serialized_data.get("intent", {})
+        if intent_data:
+            task.intent = SimpleNamespace(
+                rubric=intent_data.get("rubric", ""),
+                gold_trajectories=intent_data.get("gold_trajectories", []),
+                gold_state_diff=intent_data.get("gold_state_diff", {})
+            )
+        
+        task.is_reproducible = serialized_data.get("is_reproducible", True)
+        
+        return task
+    
+    elif env_name == "Verilog":
+        # Verilog needs special handling with snapshot_dir
+        from types import SimpleNamespace
+        from uuid import UUID
+        import tempfile
+        
+        task = SimpleNamespace()
+        task.id = UUID(serialized_data.get("id", str(uuid4())))
+        task.initial_engine_snapshot = serialized_data.get("initial_engine_snapshot", {})
+        task.metadata = MinimalTaskInstanceMetadata()
+        task.snapshot_dir = tempfile.mkdtemp(prefix="verilog_task_")
+        
+        # Handle impetus
+        impetus_data = serialized_data.get("impetus", {})
+        if impetus_data:
+            task.impetus = SimpleNamespace(instructions=impetus_data.get("instructions", ""))
+        
+        # Handle intent
+        intent_data = serialized_data.get("intent", {})
+        if intent_data:
+            task.intent = SimpleNamespace(
+                rubric=intent_data.get("rubric", ""),
+                gold_trajectories=intent_data.get("gold_trajectories", []),
+                gold_state_diff=intent_data.get("gold_state_diff", {})
+            )
+        
+        task.is_reproducible = serialized_data.get("is_reproducible", True)
+        
+        return task
+    
+    elif env_name == "NetHack":
+        # NetHack needs proper TaskInstance structure with NetHackTaskInstanceMetadata
+        from synth_env.examples.nethack.taskset import NetHackTaskInstanceMetadata
+        from types import SimpleNamespace
+        from uuid import UUID
+        
+        # Extract metadata from serialized data
+        metadata_data = serialized_data.get("metadata", {})
+        metadata = NetHackTaskInstanceMetadata(
+            character_role=metadata_data.get("character_role", "tourist"),
+            starting_level=metadata_data.get("starting_level", 1),
+            target_depth=metadata_data.get("target_depth", 3),
+            time_limit=metadata_data.get("time_limit", 1000),
+            difficulty=metadata_data.get("difficulty", "tutorial"),
+            special_objectives=metadata_data.get("special_objectives", ["Explore at least 3 different dungeon levels"]),
+            seed=metadata_data.get("seed", 42)
+        )
+        
+        task = SimpleNamespace()
+        task.id = UUID(serialized_data.get("id", str(uuid4())))
+        task.initial_engine_snapshot = serialized_data.get("initial_engine_snapshot", {})
+        task.metadata = metadata
+        
+        # Handle impetus
+        impetus_data = serialized_data.get("impetus", {})
+        if impetus_data:
+            task.impetus = MinimalImpetus(instructions=impetus_data.get("instructions", "Play NetHack and achieve the highest score."))
+        else:
+            task.impetus = MinimalImpetus(instructions="Play NetHack and achieve the highest score.")
+        
+        # Handle intent
+        intent_data = serialized_data.get("intent", {})
+        if intent_data:
+            task.intent = MinimalIntent(
+                rubric=intent_data.get("rubric", {"success": "reach target depth"}),
+                gold_trajectories=intent_data.get("gold_trajectories", []),
+                gold_state_diff=intent_data.get("gold_state_diff", {})
+            )
+        else:
+            task.intent = MinimalIntent(rubric={"success": "reach target depth"})
+        
+        task.is_reproducible = serialized_data.get("is_reproducible", False)
+        
+        return task
+    
+    elif env_name == "Enron":
+        # Enron needs task instance with email data
+        from types import SimpleNamespace
+        from uuid import UUID
+        
+        task = SimpleNamespace()
+        task.id = UUID(serialized_data.get("id", str(uuid4())))
+        task.initial_engine_snapshot = serialized_data.get("initial_engine_snapshot", {})
+        task.metadata = MinimalTaskInstanceMetadata()
+        
+        # Enron-specific fields
+        task.question = serialized_data.get("question", "What information can you find?")
+        task.answer = serialized_data.get("answer", "")
+        task.emails = serialized_data.get("emails", [])
+        
+        # Handle impetus
+        impetus_data = serialized_data.get("impetus", {})
+        if impetus_data:
+            task.impetus = SimpleNamespace(instructions=impetus_data.get("instructions", ""))
+        
+        # Handle intent
+        intent_data = serialized_data.get("intent", {})
+        if intent_data:
+            task.intent = SimpleNamespace(
+                rubric=intent_data.get("rubric", ""),
+                gold_trajectories=intent_data.get("gold_trajectories", []),
+                gold_state_diff=intent_data.get("gold_state_diff", {})
+            )
+        
+        task.is_reproducible = serialized_data.get("is_reproducible", True)
+        
+        return task
+    
+    else:
+        # Default: use SimpleNamespace for unknown environments
+        from types import SimpleNamespace
+        from uuid import UUID
+        
+        task = SimpleNamespace()
+        task.id = UUID(serialized_data.get("id", str(uuid4())))
+        task.initial_engine_snapshot = serialized_data.get("initial_engine_snapshot", {})
+        
+        # Handle impetus
+        impetus_data = serialized_data.get("impetus", {})
+        if impetus_data:
+            task.impetus = SimpleNamespace(instructions=impetus_data.get("instructions", ""))
+        
+        # Handle intent
+        intent_data = serialized_data.get("intent", {})
+        if intent_data:
+            task.intent = SimpleNamespace(
+                rubric=intent_data.get("rubric", ""),
+                gold_trajectories=intent_data.get("gold_trajectories", []),
+                gold_state_diff=intent_data.get("gold_state_diff", {})
+            )
+        
+        task.is_reproducible = serialized_data.get("is_reproducible", True)
+        
+        return task
+
+
 # Storage abstraction
 class InstanceStorage:
     """Abstract storage for environment instances"""
@@ -266,6 +443,7 @@ def convert_numpy_types(obj):
 class InitializeRequest(BaseModel):
     initial_state: Optional[Dict[str, Any]] = None
     config: Optional[Dict[str, Any]] = None
+    task_instance: Optional[Dict[str, Any]] = None  # Add task_instance field
 
 
 class StepRequest(BaseModel):
@@ -296,9 +474,16 @@ async def initialize_env(
         cls = get_environment_cls(env_name)
         print(f"✅ Got environment class: {cls}")
 
-        # Create environment-specific task instance
-        task = create_task_instance_for_environment(env_name, request.initial_state, request.config)
-        print(f"✅ Created task instance: {type(task)}")
+        # Handle task_instance parameter - use it if provided, otherwise create a new one
+        if request.task_instance:
+            print(f"🔍 Using provided task_instance...")
+            task = await reconstruct_task_instance_from_serialized(env_name, request.task_instance)
+            print(f"✅ Reconstructed task instance: {type(task)}")
+        else:
+            print(f"🔍 Creating new task instance...")
+            # Create environment-specific task instance
+            task = create_task_instance_for_environment(env_name, request.initial_state, request.config)
+            print(f"✅ Created task instance: {type(task)}")
         
         # This is where recursion might happen for Sokoban
         print(f"🔍 Creating environment instance...")

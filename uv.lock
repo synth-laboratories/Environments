@@ -3203,7 +3203,7 @@ wheels = [
 
 [[package]]
 name = "synth-env"
-version = "0.1.3.dev0"
+version = "0.1.3.dev1"
 source = { editable = "." }
 dependencies = [
     { name = "crafter" },
