@@ -1,6 +1,6 @@
 """Synth Environment Package - A framework for reinforcement learning environments."""
 
-__version__ = "0.0.1.dev1"
+__version__ = "0.1.5.dev0"
 
 # Import key modules for easier access
 from . import environment
