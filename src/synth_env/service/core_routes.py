@@ -30,6 +30,13 @@ except ImportError:
     REDIS_AVAILABLE = False
     redis_client = None
 
+# --- NEW: Global toggle to disable Redis entirely ----------------------------
+# Default is *in-memory* only. Set SYNTH_USE_INMEM=0 to enable Redis if available.
+if os.getenv("SYNTH_USE_INMEM", "1") == "1":
+    REDIS_AVAILABLE = False
+    redis_client = None
+# -----------------------------------------------------------------------------
+
 api_router = APIRouter()
 
 # Fallback in-memory store if Redis is not available
