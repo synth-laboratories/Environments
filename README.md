@@ -1,10 +1,10 @@
-# Synth Environments
+# Horizons AI
 
-**Synthetic Environments for Long-Horizon Language Agents**
+**Advanced Reinforcement Learning Environments**
 
-[![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.8+-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![PyPI](https://img.shields.io/badge/PyPI-0.0.2.dev1-orange)](https://pypi.org/project/synth-env/)
+[![PyPI](https://img.shields.io/badge/PyPI-0.1.0-orange)](https://pypi.org/project/horizons-ai/)
 
 A comprehensive framework for building and managing synthetic environments designed specifically for training and evaluating long-horizon language agents.
 
@@ -23,16 +23,16 @@ A comprehensive framework for building and managing synthetic environments desig
 ### Installation
 
 ```bash
-pip install synth-env
+pip install horizons-ai
 ```
 
 ### Basic Usage
 
 ```python
-from synth_env import Environment
+import horizons
 
 # Create environment
-env = Environment("sokoban")
+env = horizons.Environment("sokoban")
 
 # Run agent
 state = env.reset()
@@ -193,4 +193,7 @@ Special thanks to the research teams at DeepMind, Ragen AI, and other contributo
 ---
 
 **⚠️ Development Status**: This project is under active development. While stable environments are production-ready, newer environments may have breaking changes.
+
+
+
 

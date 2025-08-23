@@ -11,9 +11,9 @@ Fix: Updated validate_tool_calls to handle List[EnvToolCall] from service
 
 import pytest
 import asyncio
-from synth_env.examples.minigrid.environment import MiniGridEnvironment
-from synth_env.examples.minigrid.taskset import DEFAULT_MINIGRID_TASK
-from synth_env.environment.tools import EnvToolCall
+from horizons.environments.examples.minigrid.environment import MiniGridEnvironment
+from horizons.environments.examples.minigrid.taskset import DEFAULT_MINIGRID_TASK
+from horizons.environments.environment.tools import EnvToolCall
 
 
 class TestMiniGridServiceIntegration:

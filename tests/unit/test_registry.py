@@ -3,14 +3,15 @@ Unit tests for the environment registry functionality.
 """
 
 import pytest
-from synth_env.environment.registry import (
+from horizons.environments.environment.registry import (
     register_environment,
     get_environment_cls,
     list_supported_env_types,
     ENV_REGISTRY,
 )
-from synth_env.stateful.core import StatefulEnvironment
-from synth_env.examples.tictactoe.environment import TicTacToeEnvironment
+from horizons.environments.stateful.core import StatefulEnvironment
+# Note: tictactoe environment was removed, using crafter_classic instead
+from horizons.environments.examples.crafter_classic.environment import CrafterClassicEnvironment
 
 
 class MockEnvironment(StatefulEnvironment):
@@ -99,43 +100,41 @@ class TestRegistry:
         assert get_environment_cls("TestEnv") == UpdatedMockEnv
 
     def test_register_environment_tictactoe(self):
-        registry = EnvironmentRegistry()
-        registry.register_environment("TestEnv", TicTacToeEnvironment)
-        assert "TestEnv" in registry.list_supported_env_types()
+        register_environment("TestEnv", CrafterClassicEnvironment)
+        assert "TestEnv" in list_supported_env_types()
 
     def test_get_environment_cls_tictactoe(self):
-        registry = EnvironmentRegistry()
-        registry.register_environment("TestEnv", TicTacToeEnvironment)
-        env_cls = registry.get_environment_cls("TestEnv")
-        assert env_cls == TicTacToeEnvironment
+        register_environment("TestEnv", CrafterClassicEnvironment)
+        env_cls = get_environment_cls("TestEnv")
+        assert env_cls == CrafterClassicEnvironment
 
     def test_get_environment_cls_not_found_tictactoe(self):
-        registry = EnvironmentRegistry()
+        
         with pytest.raises(
-            ValueError, match="Environment type 'NonExistent' not found"
+            ValueError, match="Unsupported environment type: NonExistent"
         ):
-            registry.get_environment_cls("NonExistent")
+            get_environment_cls("NonExistent")
 
     def test_list_supported_env_types_tictactoe(self):
-        registry = EnvironmentRegistry()
-        registry.register_environment("TestEnv1", TicTacToeEnvironment)
-        registry.register_environment("TestEnv2", TicTacToeEnvironment)
+        
+        register_environment("TestEnv1", CrafterClassicEnvironment)
+        register_environment("TestEnv2", CrafterClassicEnvironment)
 
-        env_types = registry.list_supported_env_types()
+        env_types = list_supported_env_types()
         assert "TestEnv1" in env_types
         assert "TestEnv2" in env_types
 
     def test_register_multiple_environments_tictactoe(self):
-        registry = EnvironmentRegistry()
-        registry.register_environment("TestEnv1", TicTacToeEnvironment)
-        registry.register_environment("TestEnv2", TicTacToeEnvironment)
+        
+        register_environment("TestEnv1", CrafterClassicEnvironment)
+        register_environment("TestEnv2", CrafterClassicEnvironment)
 
-        assert len(registry.list_supported_env_types()) >= 2
+        assert len(list_supported_env_types()) >= 2
 
     def test_overwrite_environment_tictactoe(self):
-        registry = EnvironmentRegistry()
-        registry.register_environment("TestEnv", TicTacToeEnvironment)
+        
+        register_environment("TestEnv", CrafterClassicEnvironment)
 
         # Should be able to overwrite
-        registry.register_environment("TestEnv", TicTacToeEnvironment)
-        assert "TestEnv" in registry.list_supported_env_types()
+        register_environment("TestEnv", CrafterClassicEnvironment)
+        assert "TestEnv" in list_supported_env_types()

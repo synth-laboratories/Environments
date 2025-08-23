@@ -4,7 +4,7 @@ Unit tests for external environment registry functionality.
 
 import pytest
 from unittest.mock import patch, MagicMock
-from synth_env.service.external_registry import (
+from horizons.environments.service.external_registry import (
     ExternalRegistryConfig,
     load_external_environments,
 )
@@ -25,7 +25,7 @@ class TestExternalRegistry:
         config2 = ExternalRegistryConfig(external_environments=envs)
         assert config2.external_environments == envs
 
-    @patch("service.external_registry.importlib.import_module")
+    @patch("horizons.environments.service.external_registry.importlib.import_module")
     def test_load_external_environments_success(self, mock_import):
         """Test successful loading of external environments."""
         # Setup mock module with registration function
@@ -45,7 +45,7 @@ class TestExternalRegistry:
         mock_import.assert_called_once_with("external_env_module")
         mock_register.assert_called_once()
 
-    @patch("service.external_registry.importlib.import_module")
+    @patch("horizons.environments.service.external_registry.importlib.import_module")
     def test_load_external_environments_custom_function(self, mock_import):
         """Test loading with custom registration function name."""
         # Setup mock module
@@ -67,8 +67,8 @@ class TestExternalRegistry:
         mock_import.assert_called_once_with("external_module")
         mock_custom_register.assert_called_once()
 
-    @patch("service.external_registry.importlib.import_module")
-    @patch("service.external_registry.logger")
+    @patch("horizons.environments.service.external_registry.importlib.import_module")
+    @patch("horizons.environments.service.external_registry.logger")
     def test_load_external_environments_import_error(self, mock_logger, mock_import):
         """Test handling of import errors."""
         mock_import.side_effect = ImportError("Module not found")
@@ -82,8 +82,8 @@ class TestExternalRegistry:
         # Should log error but not crash
         mock_logger.error.assert_called()
 
-    @patch("service.external_registry.importlib.import_module")
-    @patch("service.external_registry.logger")
+    @patch("horizons.environments.service.external_registry.importlib.import_module")
+    @patch("horizons.environments.service.external_registry.logger")
     def test_load_external_environments_missing_function(
         self, mock_logger, mock_import
     ):
@@ -102,7 +102,7 @@ class TestExternalRegistry:
         # Should log warning
         mock_logger.warning.assert_called()
 
-    @patch("service.external_registry.logger")
+    @patch("horizons.environments.service.external_registry.logger")
     def test_load_external_environments_missing_module_field(self, mock_logger):
         """Test handling of config missing module field."""
         config = ExternalRegistryConfig(
@@ -118,8 +118,8 @@ class TestExternalRegistry:
             "External environment config missing 'module' field"
         )
 
-    @patch("service.external_registry.importlib.import_module")
-    @patch("service.external_registry.logger")
+    @patch("horizons.environments.service.external_registry.importlib.import_module")
+    @patch("horizons.environments.service.external_registry.logger")
     def test_load_external_environments_registration_error(
         self, mock_logger, mock_import
     ):

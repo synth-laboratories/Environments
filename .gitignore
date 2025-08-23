@@ -261,3 +261,7 @@ temp/
 *.arrow
 *.npy
 *.npz
+
+# Override general README.md un-ignore for local dev scripts
+scripts/README.md
+scripts/release_dev.py
