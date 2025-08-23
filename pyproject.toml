@@ -1,24 +1,58 @@
 [project]
-name = "synth-env"
-version = "0.1.3.dev4"
-description = ""
+name = "horizons-ai"
+version = "0.1.4"
+description = "Horizons AI - Advanced Reinforcement Learning Environments"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [ "pydantic", "python-dotenv>=1.0.1", "pytest>=8.3.3", "pydantic-openapi-schema>=1.5.1", "pytest-asyncio>=0.24.0", "numpy>=2.2.3", "networkx>=3.4.2", "synth-ai", "synth-sdk", "crafter>=1.8.3", "fastapi>=0.115.12", "gym-sokoban>=0.0.6", "gymnasium>=1.1.1", "uvicorn>=0.34.2", "ty>=0.0.1a5", "ruff>=0.11.10", "pyboy>=2.6.0", "setuptools>=80.8.0", "psutil>=7.0.0", "redis>=6.2.0", "imageio>=2.31.0", "nle>=0.9.1", "matplotlib>=3.10.3", "seaborn>=0.13.2", "pillow>=11.2.1", "minigrid>=3.0.0", "tabulate>=0.9.0", "tqdm>=4.67.1", "duckdb>=1.0.0", "pyarrow>=18.0.0", "reflex>=0.3.8", "pandas>=2.2.3",]
+requires-python = ">=3.10"
+dependencies = [
+ "pydantic",
+ "python-dotenv>=1.0.1",
+ "pytest>=8.3.3",
+ "pydantic-openapi-schema>=1.5.1",
+ "pytest-asyncio>=0.24.0",
+ "numpy>=2.2.3",
+ "networkx>=3.4.2",
+ "synth-sdk",
+ "crafter>=1.8.3",
+ "fastapi>=0.115.12",
+ "gym-sokoban>=0.0.6",
+ "gymnasium>=1.1.1",
+ "uvicorn>=0.34.2",
+ "ty>=0.0.1a5",
+ "ruff>=0.11.10",
+ "setuptools>=80.8.0",
+ "psutil>=7.0.0",
+ "redis>=6.2.0",
+ "imageio>=2.31.0",
+ "matplotlib>=3.10.3",
+ "seaborn>=0.13.2",
+ "pillow>=11.2.1",
+ "tabulate>=0.9.0",
+ "tqdm>=4.67.1",
+ "duckdb>=1.0.0",
+ "pyarrow>=18.0.0",
+ "reflex>=0.3.8",
+ "pandas>=2.2.3",
+ "synth-ai==0.1.8",
+]
 classifiers = []
 [[project.authors]]
 name = "Synth AI"
 email = "josh@usesynth.ai"
 
 [build-system]
-requires = [ "uv_build>=0.7.19,<0.8.0",]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project.license]
 text = "MIT"
 
 [project.urls]
-Homepage = "https://github.com/synth-laboratories/Environments"
+Homepage = "https://github.com/synth-laboratories/horizons"
+Repository = "https://github.com/synth-laboratories/horizons"
+
+[project.scripts]
+horizons-ai = "horizons.cli.root:cli"
 
 [tool.ty]
 src = [ "src",]
@@ -47,3 +81,6 @@ where = [ "src",]
 
 [tool.hatch.envs.default.env]
 path = ".venv"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/horizons"]
