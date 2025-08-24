@@ -336,7 +336,7 @@ fn goal_interaction() {
 
 #[test]
 fn wall_interaction() {
-    let env = MiniGridEnv::empty_5x5();
+    let _env = MiniGridEnv::empty_5x5();
 
     // Try to walk through walls in all directions
     let directions = [Direction::Up, Direction::Right, Direction::Down, Direction::Left];

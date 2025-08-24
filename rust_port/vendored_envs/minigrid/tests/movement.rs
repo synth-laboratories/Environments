@@ -3,7 +3,7 @@ use minigrid_rs::types::{Action, Direction};
 
 #[test]
 fn basic_forward_movement() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
     let s0 = env.public_state();
     assert_eq!(s0.agent_pos, (1, 1));
     assert_eq!(s0.agent_dir, Direction::Right as u8);
@@ -15,7 +15,7 @@ fn basic_forward_movement() {
 
 #[test]
 fn basic_turning_movement() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Turn right
     let s1 = env.step(Action::Right);
@@ -35,7 +35,7 @@ fn basic_turning_movement() {
 
 #[test]
 fn wall_collision_detection() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Move to right edge
     env.step(Action::Forward); // (2,1)
@@ -48,7 +48,7 @@ fn wall_collision_detection() {
 
 #[test]
 fn boundary_wall_collision() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Face up and try to move into top wall
     env.step(Action::Left); // Face up
@@ -58,7 +58,7 @@ fn boundary_wall_collision() {
 
 #[test]
 fn corner_navigation() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Navigate to top-right corner: (3,1) facing up
     env.step(Action::Forward); // (2,1)
@@ -80,7 +80,7 @@ fn corner_navigation() {
 
 #[test]
 fn full_grid_navigation() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Navigate around the entire grid without hitting walls
     // Start at (1,1) facing right
@@ -120,7 +120,7 @@ fn movement_with_different_starting_directions() {
     ];
 
     for (i, (_start_pos, action, expected_pos)) in expected_moves.iter().enumerate() {
-        let env = MiniGridEnv::empty_5x5();
+        let mut env = MiniGridEnv::empty_5x5();
 
         // Set up starting position if needed
         if i == 2 {
@@ -149,7 +149,7 @@ fn movement_with_different_starting_directions() {
 
 #[test]
 fn repeated_movement_patterns() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test repeated forward movements
     let mut expected_pos = (1, 1);
@@ -166,7 +166,7 @@ fn repeated_movement_patterns() {
 
 #[test]
 fn rotation_without_movement() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that rotation doesn't change position
     let start_pos = env.public_state().agent_pos;
@@ -179,7 +179,7 @@ fn rotation_without_movement() {
 
 #[test]
 fn direction_persistence() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that direction persists across multiple actions
     env.step(Action::Right); // Face down
@@ -195,7 +195,7 @@ fn direction_persistence() {
 
 #[test]
 fn movement_interaction_with_rotation() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test move, rotate, move pattern
     env.step(Action::Forward);     // (2,1)
@@ -209,7 +209,7 @@ fn movement_interaction_with_rotation() {
 
 #[test]
 fn boundary_edge_cases() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test all four corners
     let corners = [(1,1), (3,1), (1,3), (3,3)];
@@ -245,7 +245,7 @@ fn boundary_edge_cases() {
 
 #[test]
 fn movement_cost_consistency() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that movement and rotation work without errors
     let start_pos = env.public_state().agent_pos;
@@ -261,7 +261,7 @@ fn movement_cost_consistency() {
 
 #[test]
 fn pathfinding_basic() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Simple pathfinding: go right 2, down 2, left 2, up 2
     // Should end up back at start but with some rotation
@@ -323,7 +323,7 @@ fn obstacle_avoidance_simulation() {
 
 #[test]
 fn step_count_tracking() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test step count increments
     assert_eq!(env.public_state().step_count, 0);
@@ -336,7 +336,7 @@ fn step_count_tracking() {
 
 #[test]
 fn max_steps_termination() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Step until max steps reached
     for _ in 0..env.public_state().max_steps {
@@ -353,7 +353,7 @@ fn max_steps_termination() {
 
 #[test]
 fn terminated_state_behavior() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Reach goal to terminate
     env.step(Action::Forward);
@@ -374,7 +374,7 @@ fn terminated_state_behavior() {
 
 #[test]
 fn movement_state_consistency() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that state is consistent across moves
     let states = vec![
@@ -400,7 +400,7 @@ fn movement_state_consistency() {
 
 #[test]
 fn diagonal_movement_impossible() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that diagonal movement is impossible
     // Agent can only move in cardinal directions
@@ -421,7 +421,7 @@ fn diagonal_movement_impossible() {
 
 #[test]
 fn movement_range_validation() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test movement within valid range
     // In 5x5 grid, valid positions are (1,1) to (3,3)
@@ -456,7 +456,7 @@ fn movement_range_validation() {
 #[test]
 fn invalid_position_impossible() {
     // Test that agent can never reach invalid positions
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Try many random action sequences
     for _ in 0..100 {
@@ -521,7 +521,7 @@ fn state_equality_after_identical_actions() {
 
 #[test]
 fn movement_speed_consistency() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that movement speed is always 1 step
     let start_pos = env.public_state().agent_pos;
@@ -537,7 +537,7 @@ fn movement_speed_consistency() {
 
 #[test]
 fn rotation_does_not_change_position() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that any sequence of rotations doesn't change position
     let start_pos = env.public_state().agent_pos;
@@ -552,7 +552,7 @@ fn rotation_does_not_change_position() {
 
 #[test]
 fn movement_always_changes_position_when_possible() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // In the center, movement should always work
     let center_pos = (2, 2);
@@ -587,7 +587,7 @@ fn movement_always_changes_position_when_possible() {
 
 #[test]
 fn wall_detection_from_all_directions() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test wall detection from all four walls
     let wall_tests = vec![
@@ -640,7 +640,7 @@ fn wall_detection_from_all_directions() {
 
 #[test]
 fn movement_undo_simulation() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test "undoing" movement with opposite actions
     let start_state = env.public_state();
@@ -660,7 +660,7 @@ fn movement_undo_simulation() {
 
 #[test]
 fn complex_navigation_pattern() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Perform a complex navigation pattern
     let pattern = vec![
@@ -697,7 +697,7 @@ fn action_sequence_reproducibility() {
 
     // Run the sequence 5 times
     for _ in 0..5 {
-        let env = MiniGridEnv::empty_5x5();
+        let mut env = MiniGridEnv::empty_5x5();
         for action in &action_sequence {
             env.step(*action);
         }
@@ -713,7 +713,7 @@ fn action_sequence_reproducibility() {
 
 #[test]
 fn grid_boundary_awareness() {
-    let env = MiniGridEnv::empty_5x5();
+    let mut env = MiniGridEnv::empty_5x5();
 
     // Test that agent is aware of grid boundaries
     // In a 5x5 grid, the playable area is 3x3 (positions 1,1 to 3,3)
