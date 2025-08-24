@@ -493,6 +493,8 @@ pub mod engine {
                                     if kcol == color {
                                         new_locked = false;
                                         new_open = true;
+                                        // Consume the key when unlocking the door
+                                        self.carrying = None;
                                     }
                                 }
                             } else {
