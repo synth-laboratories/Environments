@@ -6,23 +6,18 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from synth_ai.environments.environment.rewards.core import RewardComponent, RewardStack
-from synth_ai.environments.environment.shared_engine import (
+from horizons.environments.environment.rewards.core import RewardComponent, RewardStack
+from horizons.environments.environment.shared_engine import (
     GetObservationCallable,
     InternalObservation,
 )
-from synth_ai.environments.examples.sokoban.engine_helpers.vendored.envs.sokoban_env import (
-    ACTION_LOOKUP,
-)
-from synth_ai.environments.examples.sokoban.engine_helpers.vendored.envs.sokoban_env import (
-    SokobanEnv as GymSokobanEnv,
-)
-from synth_ai.environments.examples.sokoban.taskset import (
+from gym_sokoban.envs.sokoban_env import SokobanEnv as GymSokobanEnv
+from horizons.examples.sokoban.taskset import (
     SokobanTaskInstance,
 )  # Assuming this is where SokobanTaskInstance is defined
-from synth_ai.environments.reproducibility.core import IReproducibleEngine  # Added import
-from synth_ai.environments.stateful.engine import StatefulEngine, StatefulEngineSnapshot
-from synth_ai.environments.tasks.core import TaskInstance
+from horizons.environments.reproducibility.core import IReproducibleEngine  # Added import
+from horizons.environments.stateful.engine import StatefulEngine, StatefulEngineSnapshot
+from horizons.environments.tasks.core import TaskInstance
 
 # No monkey-patch needed - we fixed the vendored code directly
 
@@ -164,6 +159,7 @@ class SynthSokobanObservationCallable(GetObservationCallable):
             "player_position": tuple(map(int, pub.player_position)),
             "boxes_on_target": int(pub.boxes_on_target),
             "steps_taken": int(pub.num_steps),
+            "num_env_steps": int(pub.num_steps),
             "max_steps": int(pub.max_steps),
             "last_action": pub.last_action_name,
             "reward_last": float(priv.reward_last),
@@ -280,6 +276,27 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
     task_instance: TaskInstance
     package_sokoban_env: GymSokobanEnv
 
+    # Local action name mapping for readability and parity with service logs
+    ACTION_LOOKUP = {
+        0: "push up",
+        1: "push down",
+        2: "push left",
+        3: "push right",
+        4: "move up",
+        5: "move down",
+        6: "move left",
+        7: "move right",
+    }
+
+    @staticmethod
+    def _to_env_action(action: int) -> int:
+        """Map a generalized 0..7 action space to the gym_sokoban 0..3 action space.
+        This is a fallback to keep service parity; it collapses move/push into direction only.
+        """
+        if action < 0:
+            return 0
+        return action % 4
+
     # sokoban stuff
 
     def __init__(self, task_instance: TaskInstance):
@@ -363,7 +380,8 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
         # --- Run underlying package environment step ---
         # The raw reward from package_sokoban_env.step() will be ignored,
         # as we are now using our RewardStack for a more structured reward calculation.
-        obs_raw, _, terminated_gym, info = self.package_sokoban_env.step(action)
+        env_action = self._to_env_action(action)
+        obs_raw, _, terminated_gym, info = self.package_sokoban_env.step(env_action)
 
         self.package_sokoban_env.boxes_on_target = _count_boxes_on_target(
             self.package_sokoban_env.room_state
@@ -376,7 +394,7 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
             boxes_on_target=self.package_sokoban_env.boxes_on_target,
             num_steps=self.package_sokoban_env.num_env_steps,
             max_steps=self.package_sokoban_env.max_steps,
-            last_action_name=ACTION_LOOKUP.get(action, "Unknown"),
+            last_action_name=self.ACTION_LOOKUP.get(action, "Unknown"),
             num_boxes=self.package_sokoban_env.num_boxes,
         )
 
@@ -441,7 +459,13 @@ class SokobanEngine(StatefulEngine, IReproducibleEngine):
             )
             # Simple fallback: try to reset the existing environment
             try:
-                _ = self.package_sokoban_env.reset(seed=seed)
+                # Older gym_sokoban exposes seed() rather than reset(seed=...)
+                if seed is not None and hasattr(self.package_sokoban_env, "seed"):
+                    try:
+                        self.package_sokoban_env.seed(seed)
+                    except Exception:
+                        pass
+                _ = self.package_sokoban_env.reset()
                 # Update the boxes_on_target counter
                 self.package_sokoban_env.boxes_on_target = _count_boxes_on_target(
                     self.package_sokoban_env.room_state

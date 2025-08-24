@@ -1,0 +1,14 @@
+[workspace]
+members = [
+  "core",
+  "envs/tictactoe_env",
+  "envs/sokoban_env",
+  "envs/minigrid_env",
+  "demos/tictactoe_react_demo",
+  "service/env_service",
+  "vendored_envs/tictactoe_rs",
+  "vendored_envs/sokoban",
+  "vendored_envs/minigrid",
+  "horizons_env_py",
+]
+resolver = "2"

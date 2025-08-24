@@ -1,6 +1,6 @@
 # This file re-exports the actual registry functions from .environment.registry
 # to be used by the service layer, maintaining a clean separation if needed.
-from .environment.registry import (
+from ..environment.registry import (
     register_environment,
     get_environment_cls,
     list_supported_env_types,

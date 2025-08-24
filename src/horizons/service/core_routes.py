@@ -11,9 +11,9 @@ import numpy as np
 import tempfile
 from dataclasses import dataclass
 
-from .service.registry import get_environment_cls, list_supported_env_types
-from .stateful.core import StatefulEnvironment
-from .environment.tools import EnvToolCall
+from .registry import get_environment_cls, list_supported_env_types
+from ..stateful.core import StatefulEnvironment
+from ..environment.tools import EnvToolCall
 
 # Try to import Redis for persistent storage
 try:

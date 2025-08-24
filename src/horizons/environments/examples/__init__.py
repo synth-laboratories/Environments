@@ -1,6 +1,5 @@
-"""Environment examples and demos."""
+"""Environment examples and demos.
 
-# Import submodules to make them discoverable
-from . import crafter_classic
-from . import sokoban
-from . import minigrid
+Note: Avoid importing subpackages here to prevent heavy import-time side effects.
+Import specific example modules where needed.
+"""

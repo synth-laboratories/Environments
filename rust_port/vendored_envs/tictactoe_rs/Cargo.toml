@@ -1,0 +1,8 @@
+[package]
+name = "tictactoe-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Pure TicTacToe logic crate with minimax and blended policy"
+
+[dependencies]

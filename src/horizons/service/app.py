@@ -1,20 +1,16 @@
 import sys
-import os  # Added to ensure os is available before use
+import os
 
 # Ensure local 'src' directory is on PYTHONPATH for dev installs
-# Current file: <repo>/src/synth_env/service/app.py
-# We want to add <repo>/src to sys.path (two levels up)
 _src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
-
-print(f"SYS.PATH IN APP.PY: {sys.path}")
 import logging
 
 from fastapi import FastAPI
-from .service.registry import list_supported_env_types, register_environment
-from .service.core_routes import api_router
-from .service.external_registry import (
+from .registry import list_supported_env_types, register_environment
+from .core_routes import api_router
+from .external_registry import (
     ExternalRegistryConfig,
     load_external_environments,
 )
@@ -23,34 +19,35 @@ from .service.external_registry import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Register built-in environments at import time
-import synth_env.examples.sokoban.environment as sok
+# Register built-in environments at import time (best-effort, guard missing ones)
+try:
+    import horizons.examples.sokoban.environment as sok
+    register_environment("Sokoban", sok.SokobanEnvironment)
+except Exception as e:
+    logger.warning(f"Sokoban not available: {e}")
 
-register_environment("Sokoban", sok.SokobanEnvironment)
-import synth_env.examples.crafter_classic.environment as cc
+# Optional: register PyO3-backed Sokoban variant
+try:
+    import horizons.examples.sokoban_pyo3.environment as sok_pyo3
+    register_environment("Sokoban_PyO3", sok_pyo3.SokobanPyO3Environment)
+except Exception as e:
+    logger.info(f"Sokoban_PyO3 not available: {e}")
 
-register_environment("CrafterClassic", cc.CrafterClassicEnvironment)
-import synth_env.examples.math.environment as me
-
-register_environment("HendryksMath", me.HendryksMathEnv)
-import synth_env.examples.verilog.environment as ve
-
-register_environment("Verilog", ve.VerilogEnvironment)
-import synth_env.examples.tictactoe.environment as ttt
-
-register_environment("TicTacToe", ttt.TicTacToeEnvironment)
-import synth_env.examples.nethack.environment as nh
-
-register_environment("NetHack", nh.NetHackEnvironment)
-# AlgoTune excluded from package due to size/complexity
-# import synth_env.examples.algotune.environment as at
-# register_environment("AlgoTune", at.AlgoTuneEnvironment)
-import synth_env.examples.minigrid.environment as mg
-
-register_environment("MiniGrid", mg.MiniGridEnvironment)
-import synth_env.examples.enron.environment as enron
-
-register_environment("Enron", enron.EnronEnvironment)
+# The following are optional; guard with try/except to avoid import-time failures
+for name, modpath, clsname in [
+    ("CrafterClassic", "horizons.examples.crafter_classic.environment", "CrafterClassicEnvironment"),
+    ("MiniGrid", "horizons.examples.minigrid.environment", "MiniGridEnvironment"),
+    ("TicTacToe", "horizons.examples.tictactoe.environment", "TicTacToeEnvironment"),
+    ("Verilog", "horizons.examples.verilog.environment", "VerilogEnvironment"),
+    ("HendryksMath", "horizons.examples.math.environment", "HendryksMathEnv"),
+    ("NetHack", "horizons.examples.nethack.environment", "NetHackEnvironment"),
+    ("Enron", "horizons.examples.enron.environment", "EnronEnvironment"),
+]:
+    try:
+        mod = __import__(modpath, fromlist=[clsname])
+        register_environment(name, getattr(mod, clsname))
+    except Exception as e:
+        logger.info(f"{name} not available: {e}")
 
 app = FastAPI(title="Environment Service")
 

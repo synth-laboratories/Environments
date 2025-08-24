@@ -74,9 +74,12 @@ class MinimalImpetus:
 def create_task_instance_for_environment(env_name: str, initial_state: Optional[Dict[str, Any]] = None, config: Optional[Dict[str, Any]] = None) -> Any:
     """Create appropriate task instance for different environments."""
     
-    if env_name in ["Sokoban", "CrafterClassic", "MiniGrid", "TicTacToe"]:
+    if env_name in ["Sokoban", "Sokoban_PyO3", "CrafterClassic", "MiniGrid", "TicTacToe"]:
         # These environments work with SimpleNamespace
         task = SimpleNamespace(initial_engine_snapshot=initial_state or {})
+        # Pass through config for environments that can use it (e.g., Sokoban_PyO3)
+        if config:
+            task.config = config
         
         # For MiniGrid, handle seed-based environment selection
         if env_name == "MiniGrid" and config:
@@ -597,7 +600,7 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
             f"🌐 ENVIRONMENTS SERVICE {request_id}: Extracted raw_tool_calls = {raw_tool_calls}",
             file=sys.stderr,
         )
-        
+
         # Convert dictionaries to EnvToolCall objects
         tool_calls = []
         for call_dict in raw_tool_calls:
@@ -611,7 +614,7 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
             else:
                 # Already an EnvToolCall object
                 tool_calls.append(call_dict)
-        
+
         print(
             f"🌐 ENVIRONMENTS SERVICE {request_id}: Converted to EnvToolCall objects: {tool_calls}",
             file=sys.stderr,
@@ -639,18 +642,36 @@ async def step_env(env_name: str, request: StepRequest = Body(...)) -> Dict[str,
             file=sys.stderr,
         )
 
-        # Format response
-        # FIX: StatefulEnvironment.step() returns observation dict directly,
-        # not a dict with 'observation', 'reward', 'done', 'info' keys
-        response = {
-            "observation": result,  # result IS the observation
-            "reward": result.get("reward_last", None),  # Try to get reward from obs
-            "done": result.get("terminated", False) or result.get("truncated", False),
-            "info": {"terminated": result.get("terminated", False), "truncated": result.get("truncated", False)},
+        # Convert the step result first (may be an InternalObservation or a dict)
+        result_serializable = convert_numpy_types(result)
+
+        # Unify observation view: prefer public_observation if present
+        if isinstance(result_serializable, dict) and "public_observation" in result_serializable:
+            obs_pub = result_serializable.get("public_observation", {}) or {}
+            obs_priv = result_serializable.get("private_observation", {}) or {}
+        else:
+            obs_pub = result_serializable if isinstance(result_serializable, dict) else {}
+            obs_priv = {}
+
+        # Extract convenience fields
+        reward = None
+        if isinstance(obs_pub, dict):
+            reward = obs_pub.get("reward_last")
+        if reward is None and isinstance(obs_priv, dict):
+            reward = obs_priv.get("reward_last")
+
+        terminated = False
+        truncated = False
+        if isinstance(obs_pub, dict):
+            terminated = bool(obs_pub.get("terminated", False))
+            truncated = bool(obs_pub.get("truncated", False))
+
+        response_serializable = {
+            "observation": result_serializable,
+            "reward": reward,
+            "done": terminated or truncated,
+            "info": {"terminated": terminated, "truncated": truncated},
         }
-        
-        # Convert numpy types to Python types for JSON serialization
-        response_serializable = convert_numpy_types(response)
         
         print(
             f"🌐 ENVIRONMENTS SERVICE {request_id}: Returning response with keys: {list(response_serializable.keys())}",

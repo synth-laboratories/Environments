@@ -1,8 +1,8 @@
 from abc import abstractmethod
 from typing import List
 
-from .environment.shared_engine import Engine, InternalObservation
-from .environment.tools import EnvToolCall
+from ..environment.shared_engine import Engine, InternalObservation
+from ..environment.tools import EnvToolCall
 
 
 class StatefulEnvironment(Engine):

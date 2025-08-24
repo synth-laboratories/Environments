@@ -15,12 +15,12 @@ from synth_sdk.tracing.abstractions import RewardSignal, Dataset, TrainingQuesti
 from synth_sdk.tracing.utils import get_system_id
 
 # Crafter specific imports
-from ...examples.crafter_classic.environment import (
+from ...examples.pure.crafter_classic.environment import (
     CrafterClassicEnvironment,
     CrafterPublicState,
     CrafterPrivateState,
 )
-from ...examples.crafter_classic.engine import (
+from ...examples.pure.crafter_classic.engine import (
     CRAFTER_ACTION_MAP,  # map of action name to int
 )
 
@@ -29,16 +29,16 @@ ACTION_STRING_TO_INT: Dict[str, int] = CRAFTER_ACTION_MAP
 INT_TO_ACTION_STRING: Dict[int, str] = {v: k for k, v in CRAFTER_ACTION_MAP.items()}
 
 
-from ...environment.shared_engine import (
+from ....environment.shared_engine import (
     GetObservationCallable,
     InternalObservation,
 )
-from ...examples.crafter_classic.taskset import (
+from ...examples.pure.crafter_classic.taskset import (
     CrafterTaskInstance,
     CrafterTaskInstanceMetadata,
 )
-from ...tasks.core import Impetus, Intent
-from ...environment.tools import EnvToolCall
+from ....tasks.core import Impetus, Intent
+from ....environment.tools import EnvToolCall
 
 import logging
 

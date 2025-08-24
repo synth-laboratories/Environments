@@ -1,0 +1,19 @@
+[package]
+name = "horizons_env_py"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "PyO3 bindings for Horizons Rust environments"
+
+[lib]
+name = "horizons_env_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["abi3-py311", "extension-module"] }
+horizons-core = { path = "../core" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tictactoe-env = { path = "../envs/tictactoe_env" }
+sokoban-env = { path = "../envs/sokoban_env" }
+minigrid-env = { path = "../envs/minigrid_env" }

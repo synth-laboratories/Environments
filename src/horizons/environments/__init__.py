@@ -7,5 +7,5 @@ __all__ = [
     "environment",
     "stateful",
     "tasks",
-    "examples",
+    # Do NOT auto-import examples to avoid heavy import side-effects
 ]
