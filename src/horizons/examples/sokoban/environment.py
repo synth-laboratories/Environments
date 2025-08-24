@@ -3,18 +3,18 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel
 
-from synth_ai.environments.environment.shared_engine import (
+from horizons.environments.environment.shared_engine import (
     GetObservationCallable,
     InternalObservation,
 )
-from synth_ai.environments.environment.tools import (
+from horizons.environments.environment.tools import (
     TOOL_REGISTRY,
     AbstractTool,
     EnvToolCall,
     ToolResult,
     register_tool,
 )
-from synth_ai.environments.examples.sokoban.engine import (
+from horizons.examples.sokoban.engine import (
     SokobanEngine,
     SokobanEngineSnapshot,
     SokobanPrivateState,
@@ -22,9 +22,9 @@ from synth_ai.environments.examples.sokoban.engine import (
     SynthSokobanCheckpointObservationCallable,
     SynthSokobanObservationCallable,
 )
-from synth_ai.environments.reproducibility.core import ReproducibleEnvironment
-from synth_ai.environments.stateful.core import StatefulEnvironment
-from synth_ai.environments.tasks.core import TaskInstance
+from horizons.environments.reproducibility.core import ReproducibleEnvironment
+from horizons.environments.stateful.core import StatefulEnvironment
+from horizons.environments.tasks.core import TaskInstance
 
 
 # --- Tool Definition ---

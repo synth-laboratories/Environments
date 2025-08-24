@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "horizons_env_py"
+version = "0.1.0"
+description = "PyO3 bindings for Horizons Rust environments"
+requires-python = ">=3.11"
+classifiers = [
+  "Programming Language :: Python",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[tool.maturin]
+bindings = "pyo3"
+features = []

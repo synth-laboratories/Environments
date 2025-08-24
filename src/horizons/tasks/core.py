@@ -1,5 +1,5 @@
 from typing import Optional, Dict, List, Callable, Set, Any
-from .environments.v0_observability.history import SynthGlobalTrajectory
+from ..v0_observability.history import SynthGlobalTrajectory
 from uuid import UUID
 from abc import abstractmethod
 from dataclasses import dataclass, field

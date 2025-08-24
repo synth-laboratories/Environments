@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Test configuration
-SERVICE_PORT = 8123  # Use unique port to avoid conflicts
+SERVICE_PORT = 8901  # Use Horizons default port
 SERVICE_URL = f"http://localhost:{SERVICE_PORT}"
 STARTUP_TIMEOUT = 30  # seconds
 TEST_TIMEOUT = 60  # seconds per test mode
@@ -44,7 +44,7 @@ class ServiceManager:
         
     def start(self) -> bool:
         """Start the service with specified environment variables."""
-        logger.info(f"🚀 Starting synth-env service on port {self.port}...")
+        logger.info(f"🚀 Starting Horizons AI Environment Service on port {self.port}...")
         
         # Prepare environment
         env = os.environ.copy()
@@ -56,8 +56,8 @@ class ServiceManager:
             
         # Start service
         cmd = [
-            sys.executable, "-m", "uvicorn", 
-            "src.synth_env.service.app:app",
+            sys.executable, "-m", "uvicorn",
+            "horizons.environments.service.app:app",
             "--host", "0.0.0.0",
             "--port", str(self.port),
             "--log-level", "info"
@@ -198,7 +198,7 @@ def test_storage_mode(mode_name: str, env_vars: Dict[str, str]) -> Dict[str, Any
 
 async def main():
     """Main test function."""
-    logger.info("🚀 SYNTH-ENV STORAGE MODE E2E TEST")
+    logger.info("🚀 HORIZONS AI STORAGE MODE E2E TEST")
     logger.info("=" * 50)
     
     # Test configurations

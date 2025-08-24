@@ -127,6 +127,37 @@ python dev/update_readme_metrics.py --fast
 | **Red Team** | 🚧 Development | Security testing scenarios |
 | **SWE-Bench** | 🚧 Development | Software engineering tasks |
 
+### TicTacToe backends (pure vs PyO3)
+
+There are two TicTacToe implementations:
+- `TicTacToe` (default): pure-Python reference implementation under `src/horizons/environments/examples/pure/tictactoe`.
+- `TicTacToe_PyO3`: Rust-backed implementation exposed via PyO3 (`horizons_env_py`).
+
+To enable the PyO3 variant, first build the native module:
+```
+cd rust_port && cargo build -p horizons_env_py
+```
+
+Then, with the environment service running, initialize the PyO3 environment via HTTP:
+```
+POST /env/TicTacToe_PyO3/initialize
+{
+  "config": {"agent_mark": "X", "opponent_minimax_prob": 1.0, "seed": 7}
+}
+```
+
+Step with the tool-call interface using letter/number coordinates:
+```
+POST /env/step
+{
+  "env_id": "<from initialize>",
+  "request_id": "r1",
+  "action": {"tool": "interact", "args": {"letter": "A", "number": 1}}
+}
+```
+
+Both backends expose the same observation keys (`board_text`, `current_player`, `move_count`, `last_move`, `winner`, plus `terminated`/`truncated`).
+
 ## 📖 Documentation
 
 - **[API Reference](docs/api.md)** - Complete API documentation
@@ -193,7 +224,6 @@ Special thanks to the research teams at DeepMind, Ragen AI, and other contributo
 ---
 
 **⚠️ Development Status**: This project is under active development. While stable environments are production-ready, newer environments may have breaking changes.
-
 
 
 

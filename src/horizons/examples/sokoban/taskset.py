@@ -4,11 +4,11 @@ from dataclasses import asdict, dataclass, fields
 from typing import List, Tuple
 from uuid import UUID, uuid4
 
-from synth_ai.environments.examples.sokoban.puzzle_loader import (
+from horizons.examples.sokoban.puzzle_loader import (
     SokobanPuzzle,
     get_puzzle_loader,
 )
-from synth_ai.environments.tasks.core import (
+from horizons.environments.tasks.core import (
     Impetus,
     Intent,
     SplitInfo,
@@ -329,7 +329,7 @@ async def create_task_instance_from_seed(difficulty: str, seed: int) -> SokobanT
     Returns:
         Single SokobanTaskInstance
     """
-    from synth_ai.environments.examples.sokoban.puzzle_loader import get_puzzle_by_seed
+    from horizons.examples.sokoban.puzzle_loader import get_puzzle_by_seed
 
     puzzle = get_puzzle_by_seed(difficulty, seed)
     if not puzzle:

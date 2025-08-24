@@ -1,14 +1,11 @@
 import sys
-import os  # Added to ensure os is available before use
+import os
 
 # Ensure local 'src' directory is on PYTHONPATH for dev installs
-# Current file: <repo>/src/synth_env/service/app.py
-# We want to add <repo>/src to sys.path (two levels up)
+# Add <repo>/src to sys.path (two levels up)
 _src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
-
-print(f"SYS.PATH IN APP.PY: {sys.path}")
 import logging
 
 from fastapi import FastAPI
@@ -23,24 +20,55 @@ from .external_registry import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Register built-in environments at import time
+"""Register built-in environments at import time.
+We keep registrations best-effort so the service can start without optional deps."""
+
+# Sokoban (pure)
 try:
-    import horizons.environments.examples.sokoban.environment as sok
+    import horizons.examples.sokoban.environment as sok
     register_environment("Sokoban", sok.SokobanEnvironment)
-except ImportError:
-    logger.warning("Sokoban environment not available")
+except Exception as e:
+    logger.warning(f"Sokoban not available: {e}")
+
+# Sokoban (PyO3-backed)
+try:
+    import horizons.examples.sokoban_pyo3.environment as sok_pyo3
+    register_environment("Sokoban_PyO3", sok_pyo3.SokobanPyO3Environment)
+    logger.info("Registered PyO3-backed Sokoban environment as 'Sokoban_PyO3'")
+except Exception as e:
+    logger.info(f"Sokoban_PyO3 not available: {e}")
 
 try:
-    import horizons.environments.examples.crafter_classic.environment as cc
+    import horizons.examples.crafter_classic.environment as cc
     register_environment("CrafterClassic", cc.CrafterClassicEnvironment)
-except ImportError:
-    logger.warning("CrafterClassic environment not available")
+except Exception as e:
+    logger.info(f"CrafterClassic not available: {e}")
 
 try:
-    import horizons.environments.examples.minigrid.environment as mg
+    import horizons.examples.minigrid.environment as mg
     register_environment("MiniGrid", mg.MiniGridEnvironment)
-except ImportError:
-    logger.warning("MiniGrid environment not available")
+except Exception as e:
+    logger.info(f"MiniGrid not available: {e}")
+
+# MiniGrid (PyO3-backed)
+try:
+    import horizons.examples.minigrid_pyo3.environment as mg_pyo3
+    register_environment("MiniGrid_PyO3", mg_pyo3.MiniGridPyO3Environment)
+    logger.info("Registered PyO3-backed MiniGrid environment as 'MiniGrid_PyO3'")
+except Exception as e:
+    logger.info(f"MiniGrid_PyO3 not available: {e}")
+
+# TicTacToe (register if present in repo)
+for name, modpath, clsname in [
+    ("TicTacToe", "horizons.examples.tictactoe.environment", "TicTacToeEnvironment"),
+    ("TicTacToe_PyO3", "horizons.examples.tictactoe_pyo3.environment", "TicTacToePyO3Environment"),
+]:
+    try:
+        mod = __import__(modpath, fromlist=[clsname])
+        register_environment(name, getattr(mod, clsname))
+        logger.info(f"Registered {name}")
+    except Exception as e:
+        logger.info(f"{name} not available: {e}")
 
 # Note: Enron environment is not included in this version
 # as it was removed during refactoring

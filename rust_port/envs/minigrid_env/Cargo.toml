@@ -1,0 +1,12 @@
+[package]
+name = "minigrid-env"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+horizons-core = { path = "../../core" }
+minigrid-rs = { path = "../../vendored_envs/minigrid" }
+

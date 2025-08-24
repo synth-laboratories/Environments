@@ -1,6 +1,6 @@
 from typing import Type, Dict, List
 
-from .stateful.core import StatefulEnvironment
+from ..stateful.core import StatefulEnvironment
 
 # Global registry for environment types
 ENV_REGISTRY: Dict[str, Type[StatefulEnvironment]] = {}
